@@ -1,0 +1,8 @@
+[package]
+name = "spore-basic-cli-host"
+version = "0.1.0"
+edition = "2024"
+description = "Rust host implementation for Spore's basic-cli platform"
+license = "MIT"
+
+[dependencies]
