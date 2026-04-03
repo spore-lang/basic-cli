@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  host-check:
+    name: Host (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --manifest-path host/Cargo.toml -- --check
+      - name: Clippy
+        run: cargo clippy --manifest-path host/Cargo.toml --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --manifest-path host/Cargo.toml
