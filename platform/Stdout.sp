@@ -4,16 +4,16 @@
 
 /// Print a string to stdout without trailing newline.
 foreign fn print(s: String) -> Unit
-    uses [StdOut]
+    uses [Console]
 
 /// Print a string to stdout with trailing newline.
 foreign fn println(s: String) -> Unit
-    uses [StdOut]
+    uses [Console]
 
 /// Print a formatted string to stderr.
 foreign fn eprint(s: String) -> Unit
-    uses [StdErr]
+    uses [Console]
 
 /// Print a formatted string to stderr with trailing newline.
 foreign fn eprintln(s: String) -> Unit
-    uses [StdErr]
+    uses [Console]
