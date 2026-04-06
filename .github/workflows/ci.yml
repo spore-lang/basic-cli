@@ -24,3 +24,29 @@ jobs:
         run: cargo clippy --manifest-path host/Cargo.toml --all-targets -- -D warnings
       - name: Test
         run: cargo test --manifest-path host/Cargo.toml
+
+  spore-check:
+    name: Spore (check & test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: spore-lang/spore
+          path: _spore
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: _spore
+
+      - name: Build spore compiler
+        run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
+
+      - name: Check platform modules
+        run: _spore/target/release/spore check platform/Stdout.sp platform/Stdin.sp platform/File.sp platform/Dir.sp platform/Env.sp platform/Cmd.sp
+
+      - name: Run spore tests
+        run: _spore/target/release/spore test tests/platform_check.sp
