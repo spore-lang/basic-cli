@@ -222,6 +222,19 @@ pub fn dispatch_table() -> HashMap<&'static str, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "spore-basic-cli-{name}-{unique}-{}",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn print_returns_unit() {
@@ -249,9 +262,18 @@ mod tests {
     }
 
     #[test]
+    fn env_get_none_when_unset() {
+        let key = format!("SPORE_TEST_MISSING_VAR_{}", std::process::id());
+        // SAFETY: these tests run single-threaded against a unique variable name.
+        unsafe { std::env::remove_var(&key) };
+        let result = host_env_get(&key).unwrap();
+        assert!(matches!(result, HostValue::Option(None)));
+    }
+
+    #[test]
     fn file_read_write_roundtrip() {
-        let dir = std::env::temp_dir().join("spore_basic_cli_test");
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = temp_path("file-roundtrip");
+        std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.txt");
         let path_str = path.to_str().unwrap();
 
@@ -262,16 +284,23 @@ mod tests {
             _ => panic!("expected Str"),
         }
 
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_read_missing_returns_io_error() {
+        let path = temp_path("missing-file").join("missing.txt");
+        let err = host_file_read(path.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.kind, "IoError");
+        assert!(err.message.contains("missing.txt"));
     }
 
     #[test]
     fn dir_list_works() {
-        let dir = std::env::temp_dir().join("spore_basic_cli_dir_test");
-        let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(dir.join("a.txt"), "a");
-        let _ = std::fs::write(dir.join("b.txt"), "b");
+        let dir = temp_path("dir-list");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        std::fs::write(dir.join("b.txt"), "b").unwrap();
 
         let result = host_dir_list(dir.to_str().unwrap()).unwrap();
         match result {
@@ -280,6 +309,25 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dir_mkdir_then_list_roundtrip() {
+        let root = temp_path("dir-mkdir");
+        let nested = root.join("nested");
+        host_dir_mkdir(nested.to_str().unwrap()).unwrap();
+
+        let result = host_dir_list(root.to_str().unwrap()).unwrap();
+        match result {
+            HostValue::List(items) => assert!(
+                items
+                    .iter()
+                    .any(|item| matches!(item, HostValue::Str(name) if name == "nested"))
+            ),
+            _ => panic!("expected List"),
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -292,11 +340,31 @@ mod tests {
     }
 
     #[test]
+    fn process_run_captures_stdout() {
+        let result =
+            host_process_run("sh", &["-c".into(), "printf 'hello from host'".into()]).unwrap();
+        match result {
+            HostValue::Str(output) => assert_eq!(output, "hello from host"),
+            _ => panic!("expected Str"),
+        }
+    }
+
+    #[test]
+    fn process_run_nonzero_exit_returns_exec_error() {
+        let err =
+            host_process_run("sh", &["-c".into(), "echo boom >&2; exit 7".into()]).unwrap_err();
+        assert_eq!(err.kind, "ExecError");
+        assert!(err.message.contains("boom"));
+    }
+
+    #[test]
     fn dispatch_table_has_all_functions() {
         let table = dispatch_table();
         assert_eq!(table.len(), 15);
         assert!(table.contains_key("println"));
         assert!(table.contains_key("file_read"));
         assert!(table.contains_key("process_run"));
+        assert_eq!(table.get("process_run"), Some(&"host_process_run"));
+        assert_eq!(table.get("dir_mkdir"), Some(&"host_dir_mkdir"));
     }
 }
