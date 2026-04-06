@@ -20,20 +20,20 @@ Operating System
 
 | Module | Capabilities | Description |
 |--------|-------------|-------------|
-| `Stdout` | `uses [StdOut]` | Standard output |
-| `Stdin` | `uses [StdIn]` | Standard input |
+| `Stdout` | `uses [Console]` | Standard output |
+| `Stdin` | `uses [Console]` | Standard input |
 | `File` | `uses [FileRead]` or `uses [FileWrite]` | File system operations |
 | `Dir` | `uses [FileRead]` | Directory listing |
-| `Env` | `uses [EnvVar]` | Environment variables |
-| `Cmd` | `uses [Exec]` | Process execution |
+| `Env` | `uses [Env]` | Environment variables |
+| `Cmd` | `uses [Spawn]` | Process execution |
 
 ## Quick Start
 
 ```spore
 // hello.sp
-uses [StdOut]
+uses [Console]
 
-fn main() -> Unit uses [StdOut] {
+fn main() -> Unit uses [Console] {
     println("Hello from basic-cli!")
 }
 ```
