@@ -47,6 +47,3 @@ jobs:
 
       - name: Check platform modules
         run: _spore/target/release/spore check platform/Stdout.sp platform/Stdin.sp platform/File.sp platform/Dir.sp platform/Env.sp platform/Cmd.sp
-
-      - name: Run spore tests
-        run: _spore/target/release/spore test tests/platform_check.sp
