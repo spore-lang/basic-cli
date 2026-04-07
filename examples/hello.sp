@@ -1,1 +1,1 @@
-fn main() -> Unit uses [Console] { println("Hello from Spore basic-cli!") }
+fn main() -> () uses [Console] { println("Hello from Spore basic-cli!") }

@@ -30,37 +30,52 @@ Operating System
 ## Quick Start
 
 ```spore
-// hello.sp
+// examples/hello.sp
 uses [Console]
 
-fn main() -> Unit uses [Console] {
-    println("Hello from basic-cli!")
+fn main() -> () uses [Console] {
+    println("Hello from Spore basic-cli!")
 }
 ```
 
 ```bash
-spore run hello.sp --platform basic-cli
+spore check examples/hello.sp
+spore build examples/hello.sp
+spore run examples/hello.sp
 ```
+
+This repository currently keeps `examples/` limited to files that PR CI validates end to end today.
 
 ## Project Structure
 
 ```
 basic-cli/
-├── platform/          # Spore API modules (.sp files)
+├── platform/          # Spore API modules (.sp files), checked and built in CI
 │   ├── Stdout.sp      # Standard output operations
 │   ├── Stdin.sp       # Standard input operations
 │   ├── File.sp        # File read/write operations
 │   ├── Dir.sp         # Directory operations
 │   ├── Env.sp         # Environment variable access
 │   ├── Cmd.sp         # Process execution
-│   └── main.sp        # Platform entry point
 ├── host/              # Rust host implementation
 │   ├── Cargo.toml
 │   └── src/
 │       └── lib.rs     # Foreign function implementations
-├── examples/          # Example Spore programs using this platform
-└── tests/             # Integration tests
+├── examples/          # Canonical examples that format/check/build in CI
+└── tests/             # Spore property/example tests run by CI
 ```
+
+## Tutorial Contract
+
+- `examples/` is for truthful, CI-validated examples only.
+- `platform/` is the API surface for the platform modules themselves.
+- `tests/` is for Spore-side regression coverage (`spore test`), not tutorial code.
+
+If you want to add a new tutorial/example, treat this as the bar:
+
+1. keep it self-contained;
+2. make sure it passes `spore format --check`, `spore check`, and `spore build`;
+3. only then promote it into `examples/` and mention it in this README.
 
 ## Design Philosophy
 
@@ -74,6 +89,8 @@ Following Spore's [SEP-0005 (Effect System)](https://github.com/spore-lang/spore
 ## Status
 
 🚧 **Early development** — API is unstable and subject to change.
+
+At the moment, the validated example is `examples/hello.sp`. More ambitious host-backed demos such as environment/file workflows should stay out of `examples/` until the current platform import/runtime architecture supports them honestly.
 
 ## License
 
