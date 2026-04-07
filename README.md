@@ -44,7 +44,7 @@ spore build examples/hello.sp
 spore run examples/hello.sp
 ```
 
-This repository currently keeps `examples/` limited to files that PR CI validates end to end today.
+This repository currently keeps `examples/` limited to files that PR CI validates today.
 
 ## Project Structure
 
