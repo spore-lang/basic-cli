@@ -28,6 +28,9 @@ jobs:
         with:
           workspaces: host
 
+      - name: Build host crate
+        run: cargo build --manifest-path host/Cargo.toml
+
       - name: Run host tests
         run: cargo test --manifest-path host/Cargo.toml
 
@@ -53,5 +56,20 @@ jobs:
       - name: Build spore compiler
         run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
 
+      - name: Check Spore formatting
+        run: |
+          # Keep this list to files the current formatter can round-trip today.
+          _spore/target/release/spore format --check \
+            examples/env-reader.sp \
+            examples/hello.sp \
+            platform/Env.sp \
+            platform/Stdin.sp \
+            platform/Stdout.sp \
+            platform/main.sp \
+            tests/platform_check.sp
+
       - name: Check platform modules
         run: _spore/target/release/spore check platform/Stdout.sp platform/Stdin.sp platform/File.sp platform/Dir.sp platform/Env.sp platform/Cmd.sp
+
+      - name: Run platform Spore test
+        run: _spore/target/release/spore test tests/platform_check.sp
