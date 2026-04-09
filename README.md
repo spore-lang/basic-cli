@@ -61,15 +61,14 @@ basic-cli/
 │   ├── Cargo.toml
 │   └── src/
 │       └── lib.rs     # Foreign function implementations
-├── examples/          # Canonical examples that format/check/build in CI
-└── tests/             # Spore property/example tests run by CI
+└── examples/          # Canonical examples that format/check/build in CI
 ```
 
 ## Tutorial Contract
 
 - `examples/` is for truthful, CI-validated examples only.
 - `platform/` is the API surface for the platform modules themselves.
-- `tests/` is for Spore-side regression coverage (`spore test`), not tutorial code.
+- Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.
 
 If you want to add a new tutorial/example, treat this as the bar:
 
