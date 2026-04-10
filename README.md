@@ -30,9 +30,7 @@ Operating System
 ## Quick Start
 
 ```spore
-// examples/hello.sp
-uses [Console]
-
+/// A simple "Hello World" using the basic-cli platform.
 fn main() -> () uses [Console] {
     println("Hello from Spore basic-cli!")
 }
@@ -82,7 +80,7 @@ Following Spore's [SEP-0005 (Effect System)](https://github.com/spore-lang/spore
 
 - **Capability-gated**: Every I/O function declares its required capabilities via `uses [Cap]`
 - **Cost-annotated**: Platform functions carry `cost ≤ N` budgets where meaningful
-- **Error-typed**: Functions declare error sets via `! [ErrorType]`
+- **Error-typed**: Functions declare error sets via `! ErrorType`
 - **Pure by default**: The platform boundary is the only place side effects occur
 
 ## Status

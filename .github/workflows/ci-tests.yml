@@ -63,9 +63,6 @@ jobs:
             paths+=(tests)
           fi
           find "${paths[@]}" -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          # Temporary: current spore/main formatter still emits unbracketed top-level error sets.
-          # Normalize back to parser-compatible `! [Err]` syntax until the upstream formatter fix merges.
-          find "${paths[@]}" -name '*.sp' -type f | sort | xargs ruby -e 'pattern = /! ((?:[A-Z][A-Za-z0-9_]*)(?: \| [A-Z][A-Za-z0-9_]*)*) (?=uses|cost|where|\{|$)/; ARGV.each do |name|; text = File.read(name); normalized = text.gsub(pattern) { "! [" + Regexp.last_match(1).split(" | ").join(", ") + "] " }; File.write(name, normalized) if normalized != text; end'
           git diff --exit-code -- "${paths[@]}"
 
       - name: Check Spore files
