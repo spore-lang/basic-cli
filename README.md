@@ -23,7 +23,7 @@ Operating System
 | `Stdout` | `uses [Console]` | Standard output |
 | `Stdin` | `uses [Console]` | Standard input |
 | `File` | `uses [FileRead]` or `uses [FileWrite]` | File system operations |
-| `Dir` | `uses [FileRead]` | Directory listing |
+| `Dir` | `uses [FileRead]` or `uses [FileWrite]` | Directory listing and creation |
 | `Env` | `uses [Env]` | Environment variables |
 | `Cmd` | `uses [Spawn]` | Process execution |
 
@@ -76,10 +76,10 @@ If you want to add a new tutorial/example, treat this as the bar:
 
 ## Design Philosophy
 
-Following Spore's [SEP-0005 (Effect System)](https://github.com/spore-lang/spore-evolution):
+Following Spore's [SEP-0003 (Effect Capability System)](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-capability-system.md):
 
 - **Capability-gated**: Every I/O function declares its required capabilities via `uses [Cap]`
-- **Cost-annotated**: Platform functions carry `cost ≤ N` budgets where meaningful
+- **Cost-annotated**: Platform functions can carry `cost [c, a, i, p]` budgets where meaningful
 - **Error-typed**: Functions declare error sets via `! ErrorType`
 - **Pure by default**: The platform boundary is the only place side effects occur
 

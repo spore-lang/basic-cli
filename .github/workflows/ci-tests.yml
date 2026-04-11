@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: spore-lang/spore
+          ref: f36d507f3dd33f61e26b9cdc382e855889172667
           path: _spore
 
       - uses: dtolnay/rust-toolchain@stable
@@ -80,6 +81,9 @@ jobs:
             paths+=(tests)
           fi
           find "${paths[@]}" -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+
+      - name: Run hello example
+        run: _spore/target/release/spore run examples/hello.sp
 
       - name: Run Spore spec tests
         run: |
