@@ -1,0 +1,10 @@
+[package]
+name = "basic-cli"
+version = "0.1.0"
+type = "platform"
+spore-version = ">=0.1.0"
+
+[capabilities]
+allow = ["Compute"]
+
+[dependencies]

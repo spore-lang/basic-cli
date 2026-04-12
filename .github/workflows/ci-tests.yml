@@ -58,7 +58,7 @@ jobs:
 
       - name: Format Spore files
         run: |
-          paths=(examples platform)
+          paths=(examples src)
           if [ -d tests ]; then
             paths+=(tests)
           fi
@@ -67,7 +67,7 @@ jobs:
 
       - name: Check Spore files
         run: |
-          paths=(examples platform)
+          paths=(examples src)
           if [ -d tests ]; then
             paths+=(tests)
           fi
@@ -75,7 +75,7 @@ jobs:
 
       - name: Build Spore files
         run: |
-          paths=(examples platform)
+          paths=(examples src)
           if [ -d tests ]; then
             paths+=(tests)
           fi
