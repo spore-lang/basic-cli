@@ -20,12 +20,12 @@ Operating System
 
 | Module | Capabilities | Description |
 |--------|-------------|-------------|
-| `Stdout` | `uses [Console]` | Standard output |
-| `Stdin` | `uses [Console]` | Standard input |
-| `File` | `uses [FileRead]` or `uses [FileWrite]` | File system operations |
-| `Dir` | `uses [FileRead]` or `uses [FileWrite]` | Directory listing and creation |
-| `Env` | `uses [Env]` | Environment variables |
-| `Cmd` | `uses [Spawn]` | Process execution |
+| `basic_cli.stdout` | `uses [Console]` | Standard output |
+| `basic_cli.stdin` | `uses [Console]` | Standard input |
+| `basic_cli.file` | `uses [FileRead]` or `uses [FileWrite]` | File system operations |
+| `basic_cli.dir` | `uses [FileRead]` or `uses [FileWrite]` | Directory listing and creation |
+| `basic_cli.env` | `uses [Env]` | Environment variables |
+| `basic_cli.cmd` | `uses [Spawn]` | Process execution |
 
 ## Quick Start
 
@@ -43,19 +43,21 @@ spore run examples/hello.sp
 ```
 
 This repository currently keeps `examples/` limited to files that PR CI validates today.
-It also intentionally keeps the current loose `.sp` file layout for now; the manifest/package-layout migration is deferred to a follow-up change.
 
 ## Project Structure
 
 ```
 basic-cli/
-├── platform/          # Spore API modules (.sp files), checked and built in CI
-│   ├── Stdout.sp      # Standard output operations
-│   ├── Stdin.sp       # Standard input operations
-│   ├── File.sp        # File read/write operations
-│   ├── Dir.sp         # Directory operations
-│   ├── Env.sp         # Environment variable access
-│   ├── Cmd.sp         # Process execution
+├── spore.toml         # Platform manifest
+├── src/
+│   ├── host.sp        # Default platform entry point
+│   └── basic_cli/     # Spore API modules, checked and built in CI
+│       ├── stdout.sp  # Standard output operations
+│       ├── stdin.sp   # Standard input operations
+│       ├── file.sp    # File read/write operations
+│       ├── dir.sp     # Directory operations
+│       ├── env.sp     # Environment variable access
+│       └── cmd.sp     # Process execution
 ├── host/              # Rust host implementation
 │   ├── Cargo.toml
 │   └── src/
@@ -66,7 +68,7 @@ basic-cli/
 ## Tutorial Contract
 
 - `examples/` is for truthful, CI-validated examples only.
-- `platform/` is the API surface for the platform modules themselves.
+- `src/basic_cli/` is the API surface for the platform modules themselves.
 - Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.
 
 If you want to add a new tutorial/example, treat this as the bar:
