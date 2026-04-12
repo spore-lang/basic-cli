@@ -58,7 +58,9 @@ jobs:
 
       - name: Format Spore files
         run: |
-          paths=(examples src)
+          # `src/host.sp` is the package host entry; validate it via package/example flows,
+          # not standalone file-mode formatting.
+          paths=(examples src/basic_cli)
           if [ -d tests ]; then
             paths+=(tests)
           fi
