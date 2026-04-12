@@ -1,7 +1,7 @@
 /// basic-cli platform — Environment variable access
 
 /// Get the value of an environment variable, or None if not set.
-foreign fn env_get(key: String) -> Option[String] uses [Env]
+pub foreign fn env_get(key: Str) -> Option[Str] uses [Env]
 
 /// Set an environment variable.
-foreign fn env_set(key: String, value: String) -> Unit uses [Env]
+pub foreign fn env_set(key: Str, value: Str) -> () uses [Env]
