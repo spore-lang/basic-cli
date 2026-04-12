@@ -1,5 +1,6 @@
-/// Platform startup adapter.
-/// This is where the platform sets up effect handlers before calling the application startup function.
+/// Compatibility startup adapter.
+/// Keep this entry in sync with `platform_contract.sp` until the compiler reads
+/// `[platform].contract-module` directly.
 pub fn main_for_host(app_main: () -> ()) -> () {
     app_main()
     return

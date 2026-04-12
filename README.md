@@ -50,7 +50,8 @@ This repository currently keeps `examples/` limited to files that PR CI validate
 basic-cli/
 ├── spore.toml         # Platform manifest
 ├── src/
-│   ├── host.sp        # Default platform entry point
+│   ├── host.sp        # Compatibility runtime entry point
+│   ├── platform_contract.sp
 │   └── basic_cli/     # Spore API modules, checked and built in CI
 │       ├── stdout.sp  # Standard output operations
 │       ├── stdin.sp   # Standard input operations
@@ -65,10 +66,24 @@ basic-cli/
 └── examples/          # Canonical examples that format/check/build in CI
 ```
 
+## Contract Surface (MVP)
+
+The current Platform contract MVP is intentionally split across two artifacts:
+
+1. `spore.toml` `[platform]` metadata names the contract module, the startup contract symbol, the adapter function, and the handled capabilities.
+2. `src/platform_contract.sp` owns the startup contract itself:
+   - a hole-backed `main` function carries the authoritative startup signature
+   - `main_for_host` is the Platform-owned adapter that receives the application startup function
+
+Applications targeting `basic-cli` must implement the same startup function name/signature in their entry module. When the compiler starts reading Platform contracts from packages, `spec` items attached to the Platform contract and the application implementation will both have to hold.
+
+`src/host.sp` remains as a compatibility copy of the adapter while the compiler still hardcodes platform startup behavior.
+
 ## Tutorial Contract
 
 - `examples/` is for truthful, CI-validated examples only.
 - `src/basic_cli/` is the API surface for the platform modules themselves.
+- `src/platform_contract.sp` is the package-owned startup contract surface.
 - Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.
 
 If you want to add a new tutorial/example, treat this as the bar:
