@@ -1,7 +1,7 @@
 /// basic-cli platform — Directory operations
 
 /// List entries in a directory, returning their names.
-foreign fn dir_list(path: String) -> List[String] ! IoError uses [FileRead]
+pub foreign fn dir_list(path: Str) -> List[Str] ! IoError uses [FileRead]
 
 /// Create a directory (and any missing parents).
-foreign fn dir_mkdir(path: String) -> Unit ! IoError uses [FileWrite]
+pub foreign fn dir_mkdir(path: Str) -> () ! IoError uses [FileWrite]
