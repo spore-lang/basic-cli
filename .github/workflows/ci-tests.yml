@@ -1,0 +1,93 @@
+name: "CI - Tests"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: host
+
+      - name: Build host crate
+        run: cargo build --manifest-path host/Cargo.toml
+
+      - name: Run host tests
+        run: cargo test --manifest-path host/Cargo.toml
+
+  spore:
+    name: spore
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/checkout@v6
+        with:
+          repository: spore-lang/spore
+          ref: ef627c785e355a70551af5e4f4d85230996ce8d9
+          path: _spore
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: _spore
+
+      - name: Build spore compiler
+        run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
+
+      - name: Format Spore files
+        run: |
+          paths=(examples platform)
+          if [ -d tests ]; then
+            paths+=(tests)
+          fi
+          find "${paths[@]}" -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
+          git diff --exit-code -- "${paths[@]}"
+
+      - name: Check Spore files
+        run: |
+          paths=(examples platform)
+          if [ -d tests ]; then
+            paths+=(tests)
+          fi
+          find "${paths[@]}" -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
+
+      - name: Build Spore files
+        run: |
+          paths=(examples platform)
+          if [ -d tests ]; then
+            paths+=(tests)
+          fi
+          find "${paths[@]}" -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+
+      - name: Run hello example
+        run: _spore/target/release/spore run examples/hello.sp
+
+      - name: Run Spore spec tests
+        run: |
+          if [ ! -d tests ]; then
+            echo "No Spore spec tests yet; skipping spore test."
+            exit 0
+          fi
+          find tests -name '*.sp' -type f | sort | xargs -r -n 1 _spore/target/release/spore test
