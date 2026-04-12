@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: spore-lang/spore
-          ref: f36d507f3dd33f61e26b9cdc382e855889172667
+          ref: ef627c785e355a70551af5e4f4d85230996ce8d9
           path: _spore
 
       - uses: dtolnay/rust-toolchain@stable

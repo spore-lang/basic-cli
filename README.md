@@ -43,6 +43,7 @@ spore run examples/hello.sp
 ```
 
 This repository currently keeps `examples/` limited to files that PR CI validates today.
+It also intentionally keeps the current loose `.sp` file layout for now; the manifest/package-layout migration is deferred to a follow-up change.
 
 ## Project Structure
 
