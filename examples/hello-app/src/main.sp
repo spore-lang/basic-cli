@@ -1,10 +1,12 @@
-/// Canonical project-mode application example for basic-cli.
+/// Canonical package-backed application example for basic-cli.
 ///
-/// This application uses the built-in cli platform and demonstrates
-/// the standard project structure that basic-cli will support when
-/// custom platforms are fully implemented.
+/// This mirrors the formatted `spore new` scaffold: import the
+/// platform module explicitly and call `println` directly from the
+/// imported basic-cli surface.
 /// Application entry point matching the platform contract.
-pub fn main() -> () uses [Console] {
+import basic_cli.stdout as stdout
+
+fn main() -> () uses [Console] {
     println("Hello from a project-mode Spore application!")
     return
 }

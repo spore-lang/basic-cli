@@ -5,7 +5,7 @@ type = "application"
 spore-version = ">=0.1.0"
 
 [project]
-platform = "cli"
+platform = "basic-cli"
 default-entry = "app"
 
 [entries.app]
@@ -13,3 +13,6 @@ path = "main.sp"
 
 [capabilities]
 allow = ["Compute"]
+
+[dependencies]
+basic-cli = { path = "../.." }

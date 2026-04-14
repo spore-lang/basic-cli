@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: spore-lang/spore
-          ref: ef627c785e355a70551af5e4f4d85230996ce8d9
+          ref: d96212aa5a4cfe24759c21d8690642adfd357018
           path: _spore
 
       - uses: dtolnay/rust-toolchain@stable
@@ -58,13 +58,11 @@ jobs:
 
       - name: Format Spore files
         run: |
-          # `src/host.sp` is the package host entry; validate it via package/example flows,
-          # not standalone file-mode formatting.
+          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
+          # via the example and platform modules rather than standalone file-mode checks.
           # Standalone file examples
           find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
           # Project-mode examples (format their src files)
-          # Note: Project-mode examples define proper package structure but may not yet
-          # be fully executable until compiler package resolution is complete.
           if [ -d examples/hello-app/src ]; then
             find examples/hello-app/src -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
           fi
@@ -78,8 +76,8 @@ jobs:
 
       - name: Check Spore files
         run: |
-          # `src/host.sp` is the package host entry; validate it via package/example flows,
-          # not standalone file-mode checks.
+          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
+          # via the example and platform modules rather than standalone file-mode checks.
           # Standalone file examples
           find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
           # Platform API modules
@@ -96,8 +94,8 @@ jobs:
 
       - name: Build Spore files
         run: |
-          # `src/host.sp` is the package host entry; validate it via package/example flows,
-          # not standalone file-mode builds.
+          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
+          # via the example and platform modules rather than standalone file-mode builds.
           # Standalone file examples
           find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
           # Platform API modules
