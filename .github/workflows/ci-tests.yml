@@ -60,35 +60,67 @@ jobs:
         run: |
           # `src/host.sp` is the package host entry; validate it via package/example flows,
           # not standalone file-mode formatting.
-          paths=(examples src/basic_cli)
-          if [ -d tests ]; then
-            paths+=(tests)
+          # Standalone file examples
+          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
+          # Project-mode examples (format their src files)
+          # Note: Project-mode examples define proper package structure but may not yet
+          # be fully executable until compiler package resolution is complete.
+          if [ -d examples/hello-app/src ]; then
+            find examples/hello-app/src -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
           fi
-          find "${paths[@]}" -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          git diff --exit-code -- "${paths[@]}"
+          # Platform API modules
+          find src/basic_cli -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
+          # Check tests if they exist
+          if [ -d tests ]; then
+            find tests -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
+          fi
+          git diff --exit-code
 
       - name: Check Spore files
         run: |
           # `src/host.sp` is the package host entry; validate it via package/example flows,
           # not standalone file-mode checks.
-          paths=(examples src/basic_cli)
-          if [ -d tests ]; then
-            paths+=(tests)
+          # Standalone file examples
+          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
+          # Platform API modules
+          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
+          # Project-mode examples: validate with spore check
+          if [ -d examples/hello-app ]; then
+            echo "✓ Checking project-mode example examples/hello-app/src/main.sp"
+            _spore/target/release/spore check examples/hello-app/src/main.sp
           fi
-          find "${paths[@]}" -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
+          # Check tests if they exist
+          if [ -d tests ]; then
+            find tests -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
+          fi
 
       - name: Build Spore files
         run: |
           # `src/host.sp` is the package host entry; validate it via package/example flows,
           # not standalone file-mode builds.
-          paths=(examples src/basic_cli)
-          if [ -d tests ]; then
-            paths+=(tests)
+          # Standalone file examples
+          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+          # Platform API modules
+          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+          # Project-mode examples: validate with spore build
+          if [ -d examples/hello-app ]; then
+            echo "✓ Building project-mode example examples/hello-app/src/main.sp"
+            _spore/target/release/spore build examples/hello-app/src/main.sp
           fi
-          find "${paths[@]}" -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+          # Check tests if they exist
+          if [ -d tests ]; then
+            find tests -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
+          fi
 
-      - name: Run hello example
+      - name: Run standalone hello example
         run: _spore/target/release/spore run examples/hello.sp
+
+      - name: Run project-mode hello-app example
+        run: |
+          if [ -d examples/hello-app ]; then
+            echo "✓ Running project-mode example examples/hello-app/src/main.sp"
+            _spore/target/release/spore run examples/hello-app/src/main.sp
+          fi
 
       - name: Run Spore spec tests
         run: |

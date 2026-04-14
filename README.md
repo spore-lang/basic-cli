@@ -29,20 +29,43 @@ Operating System
 
 ## Quick Start
 
+The canonical project-mode structure is demonstrated in `examples/hello-app/`:
+
+**examples/hello-app/spore.toml:**
+```toml
+[package]
+name = "hello-app"
+type = "application"
+
+[project]
+platform = "cli"
+default-entry = "app"
+
+[entries.app]
+path = "main.sp"
+
+[capabilities]
+allow = ["Compute"]
+```
+
+**examples/hello-app/src/main.sp:**
 ```spore
-/// A simple "Hello World" using the basic-cli platform.
-fn main() -> () uses [Console] {
-    println("Hello from Spore basic-cli!")
+pub fn main() -> () uses [Console] {
+    println("Hello from a project-mode Spore application!")
+    return
 }
 ```
 
+**Run the project:**
 ```bash
-spore check examples/hello.sp
-spore build examples/hello.sp
-spore run examples/hello.sp
+cd examples/hello-app
+spore check src/main.sp
+spore run src/main.sp
 ```
 
-This repository currently keeps `examples/` limited to files that PR CI validates today.
+This example currently uses the built-in `cli` platform. When custom platform packages are fully supported in the compiler, `basic-cli` will become a loadable platform dependency that applications can declare in `spore.toml` and import modules from (e.g., `import basic_cli.stdout`). Until then, the example demonstrates the project structure and validates that format/check/run work correctly.
+
+For quick experiments, you can also run standalone `.sp` files (see `examples/hello.sp`), but production applications should use the project-mode structure above.
 
 ## Project Structure
 
@@ -81,7 +104,8 @@ Applications targeting `basic-cli` must implement the same startup function name
 
 ## Tutorial Contract
 
-- `examples/` is for truthful, CI-validated examples only.
+- `examples/hello-app/` is the **canonical project-mode example** — its structure and format are validated in CI.
+- `examples/hello.sp` is a minimal standalone file for quick experiments (also validated in CI).
 - `src/basic_cli/` is the API surface for the platform modules themselves.
 - `src/platform_contract.sp` is the package-owned startup contract surface.
 - Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.
@@ -105,7 +129,9 @@ Following Spore's [SEP-0003 (Effect Capability System)](https://github.com/spore
 
 🚧 **Early development** — API is unstable and subject to change.
 
-At the moment, the validated example is `examples/hello.sp`. More ambitious host-backed demos such as environment/file workflows should stay out of `examples/` until the current platform import/runtime architecture supports them honestly.
+The canonical example is the **project-mode** `examples/hello-app/` application, which demonstrates the standard project structure. It currently uses the built-in `cli` platform and validates successfully with `spore check` and `spore run`. Once custom platform packages are fully supported, applications will be able to declare `basic-cli` as a platform dependency and import its modules directly.
+
+The standalone file example (`examples/hello.sp`) demonstrates basic-cli usage for quick experiments. The platform API modules in `src/basic_cli/` define the capability-gated interface that will be available when package imports are enabled.
 
 ## License
 
