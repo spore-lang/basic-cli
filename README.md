@@ -25,7 +25,7 @@ Operating System
 | `basic_cli.file` | `uses [FileRead]` or `uses [FileWrite]` | File system operations |
 | `basic_cli.dir` | `uses [FileRead]` or `uses [FileWrite]` | Directory listing and creation |
 | `basic_cli.env` | `uses [Env]` | Environment variables |
-| `basic_cli.cmd` | `uses [Spawn]` | Process execution |
+| `basic_cli.cmd` | `uses [Spawn]` or `uses [Exit]` | Process execution and explicit exit |
 
 ## Quick Start
 
