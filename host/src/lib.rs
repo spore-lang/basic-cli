@@ -195,6 +195,26 @@ pub fn host_process_run_status(cmd: &str, args: &[String]) -> HostResult {
     Ok(HostValue::Int(status.code().unwrap_or(-1) as i64))
 }
 
+pub fn host_exit(code: i64) -> HostResult {
+    let code = u8::try_from(code).map_err(|_| HostError {
+        kind: "ExitError".into(),
+        message: format!("exit code {code} is out of range for 0..=255"),
+    })?;
+
+    #[cfg(test)]
+    {
+        Err(HostError {
+            kind: "Exit".into(),
+            message: format!("process exit requested with code {code}"),
+        })
+    }
+
+    #[cfg(not(test))]
+    {
+        std::process::exit(i32::from(code))
+    }
+}
+
 // ── Dispatch table ──────────────────────────────────────────────────
 
 /// Build the host function dispatch table.
@@ -216,6 +236,7 @@ pub fn dispatch_table() -> HashMap<&'static str, &'static str> {
     table.insert("env_set", "host_env_set");
     table.insert("process_run", "host_process_run");
     table.insert("process_run_status", "host_process_run_status");
+    table.insert("exit", "host_exit");
     table
 }
 
@@ -358,13 +379,28 @@ mod tests {
     }
 
     #[test]
+    fn exit_returns_test_sentinel_error() {
+        let err = host_exit(17).unwrap_err();
+        assert_eq!(err.kind, "Exit");
+        assert!(err.message.contains("17"));
+    }
+
+    #[test]
+    fn exit_rejects_out_of_range_codes() {
+        let err = host_exit(256).unwrap_err();
+        assert_eq!(err.kind, "ExitError");
+        assert!(err.message.contains("0..=255"));
+    }
+
+    #[test]
     fn dispatch_table_has_all_functions() {
         let table = dispatch_table();
-        assert_eq!(table.len(), 15);
+        assert_eq!(table.len(), 16);
         assert!(table.contains_key("println"));
         assert!(table.contains_key("file_read"));
         assert!(table.contains_key("process_run"));
         assert_eq!(table.get("process_run"), Some(&"host_process_run"));
         assert_eq!(table.get("dir_mkdir"), Some(&"host_dir_mkdir"));
+        assert_eq!(table.get("exit"), Some(&"host_exit"));
     }
 }
