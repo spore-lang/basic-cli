@@ -1,6 +1,6 @@
-/// Compatibility startup adapter.
-/// Keep this entry in sync with `platform_contract.sp` until the compiler reads
-/// `[platform].contract-module` directly.
+/// Legacy compatibility adapter.
+/// Manifest-backed projects resolve `main_for_host` from `platform_contract.sp`;
+/// keep this shim in sync for older references.
 pub fn main_for_host(app_main: () -> ()) -> () {
     app_main()
     return
