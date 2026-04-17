@@ -1,0 +1,18 @@
+[package]
+name = "hello-app"
+version = "0.1.0"
+type = "application"
+spore-version = ">=0.1.0"
+
+[project]
+platform = "basic-cli"
+default-entry = "app"
+
+[entries.app]
+path = "main.sp"
+
+[capabilities]
+allow = ["Compute"]
+
+[dependencies]
+basic-cli = { path = "../.." }
