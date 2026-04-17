@@ -8,3 +8,6 @@ pub foreign fn process_run(cmd: Str, args: List[Str]) -> Str ! ExecError uses [S
 
 /// Run a command and return its exit code.
 pub foreign fn process_run_status(cmd: Str, args: List[Str]) -> Int ! ExecError uses [Spawn]
+
+/// Exit the current process with the provided status code.
+pub foreign fn exit(code: Int) -> Never uses [Exit]
