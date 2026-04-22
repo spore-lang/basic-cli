@@ -1,6 +1,6 @@
 /// basic-cli platform — File system operations
 ///
-/// Provides capability-gated file read and write operations.
+/// Provides effect-gated file read and write operations.
 
 /// Read the entire contents of a file as a string.
 pub foreign fn file_read(path: Str) -> Str ! IoError uses [FileRead]

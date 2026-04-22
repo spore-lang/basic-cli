@@ -11,8 +11,8 @@ default-entry = "app"
 [entries.app]
 path = "main.sp"
 
-[capabilities]
-allow = ["Compute"]
+[effects]
+declared = ["Compute"]
 
 [dependencies]
 basic-cli = { path = "../.." }
