@@ -84,8 +84,11 @@ jobs:
           find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
           # Project-mode examples: validate with spore check
           if [ -d examples/hello-app ]; then
-            echo "✓ Checking project-mode example examples/hello-app/src/main.sp"
-            _spore/target/release/spore check examples/hello-app/src/main.sp
+            (
+              cd examples/hello-app
+              echo "✓ Checking project-mode example src/main.sp"
+              ../../_spore/target/release/spore check src/main.sp
+            )
           fi
           # Check tests if they exist
           if [ -d tests ]; then
@@ -102,8 +105,11 @@ jobs:
           find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
           # Project-mode examples: validate with spore build
           if [ -d examples/hello-app ]; then
-            echo "✓ Building project-mode example examples/hello-app/src/main.sp"
-            _spore/target/release/spore build examples/hello-app/src/main.sp
+            (
+              cd examples/hello-app
+              echo "✓ Building project-mode example src/main.sp"
+              ../../_spore/target/release/spore build src/main.sp
+            )
           fi
           # Check tests if they exist
           if [ -d tests ]; then
@@ -116,8 +122,11 @@ jobs:
       - name: Run project-mode hello-app example
         run: |
           if [ -d examples/hello-app ]; then
-            echo "✓ Running project-mode example examples/hello-app/src/main.sp"
-            _spore/target/release/spore run examples/hello-app/src/main.sp
+            (
+              cd examples/hello-app
+              echo "✓ Running project-mode example src/main.sp"
+              ../../_spore/target/release/spore run src/main.sp
+            )
           fi
 
       - name: Run Spore spec tests
