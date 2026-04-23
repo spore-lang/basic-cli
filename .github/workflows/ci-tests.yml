@@ -36,27 +36,68 @@ jobs:
   spore:
     name: spore
     runs-on: ubuntu-latest
+    env:
+      SPORE_REPOSITORY: spore-lang/spore
+      SPORE_REF: d96212aa5a4cfe24759c21d8690642adfd357018
     steps:
       - uses: actions/checkout@v6
 
+      - name: Probe spore compiler access
+        id: spore-source
+        env:
+          SPORE_CHECKOUT_TOKEN: ${{ secrets.SPORE_REPO_READ_TOKEN != '' && secrets.SPORE_REPO_READ_TOKEN || github.token }}
+          HAS_SPORE_REPO_READ_TOKEN: ${{ secrets.SPORE_REPO_READ_TOKEN != '' }}
+        run: |
+          echo "::add-mask::$SPORE_CHECKOUT_TOKEN"
+          api_url="https://api.github.com/repos/${SPORE_REPOSITORY}/git/commits/${SPORE_REF}"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${SPORE_CHECKOUT_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "${api_url}")"
+
+          if [ "${status}" = "200" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+          if [ "${HAS_SPORE_REPO_READ_TOKEN}" = "true" ]; then
+            echo "::error::Configured secrets.SPORE_REPO_READ_TOKEN cannot read ${SPORE_REPOSITORY}@${SPORE_REF} (HTTP ${status})."
+            exit 1
+          fi
+
+          if [ "${status}" != "404" ]; then
+            echo "::error::Unexpected response probing ${SPORE_REPOSITORY}@${SPORE_REF} without secrets.SPORE_REPO_READ_TOKEN (HTTP ${status})."
+            exit 1
+          fi
+
+          echo "::warning::Skipping compiler-backed Spore checks because github.token cannot read private ${SPORE_REPOSITORY}. Configure secrets.SPORE_REPO_READ_TOKEN with read access to enable the full suite."
+
       - uses: actions/checkout@v6
+        if: steps.spore-source.outputs.available == 'true'
         with:
-          repository: spore-lang/spore
-          ref: d96212aa5a4cfe24759c21d8690642adfd357018
+          repository: ${{ env.SPORE_REPOSITORY }}
+          ref: ${{ env.SPORE_REF }}
           path: _spore
+          token: ${{ secrets.SPORE_REPO_READ_TOKEN != '' && secrets.SPORE_REPO_READ_TOKEN || github.token }}
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.spore-source.outputs.available == 'true'
         with:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.spore-source.outputs.available == 'true'
         with:
           workspaces: _spore
 
       - name: Build spore compiler
+        if: steps.spore-source.outputs.available == 'true'
         run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
 
       - name: Format Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode checks.
@@ -75,6 +116,7 @@ jobs:
           git diff --exit-code
 
       - name: Check Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode checks.
@@ -96,6 +138,7 @@ jobs:
           fi
 
       - name: Build Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode builds.
@@ -117,9 +160,11 @@ jobs:
           fi
 
       - name: Run standalone hello example
+        if: steps.spore-source.outputs.available == 'true'
         run: _spore/target/release/spore run examples/hello.sp
 
       - name: Run project-mode hello-app example
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           if [ -d examples/hello-app ]; then
             (
@@ -130,9 +175,31 @@ jobs:
           fi
 
       - name: Run Spore spec tests
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           if [ ! -d tests ]; then
             echo "No Spore spec tests yet; skipping spore test."
             exit 0
           fi
           find tests -name '*.sp' -type f | sort | xargs -r -n 1 _spore/target/release/spore test
+
+      - name: Validate Spore package wiring fallback
+        if: steps.spore-source.outputs.available != 'true'
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          manifest = tomllib.loads(Path("spore.toml").read_text(encoding="utf-8"))
+          assert manifest["package"]["type"] == "platform"
+          assert manifest["platform"]["contract-module"] == "platform_contract"
+          assert "Console" in manifest["platform"]["handled-effects"]
+
+          app_manifest = tomllib.loads(Path("examples/hello-app/spore.toml").read_text(encoding="utf-8"))
+          assert app_manifest["project"]["platform"] == "basic-cli"
+          assert app_manifest["dependencies"]["basic-cli"]["path"] == "../.."
+          PY
+
+          test -f examples/hello.sp
+          test -f src/platform_contract.sp
+          find src/basic_cli examples -name '*.sp' -type f | sort
