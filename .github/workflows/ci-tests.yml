@@ -56,72 +56,27 @@ jobs:
         with:
           workspaces: _spore
 
-      - name: Build spore compiler
-        run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
+      - name: Install spore CLI
+        run: cargo install --locked --path _spore --bin spore --force
 
       - name: Format Spore files
-        run: |
-          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
-          # via the example and platform modules rather than standalone file-mode checks.
-          # Standalone file examples
-          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          # Project-mode examples (format their src files)
-          find examples/hello-app/src -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          # Platform API modules
-          find src/basic_cli -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          # Check tests if they exist
-          if [ -d tests ]; then
-            find tests -name '*.sp' -type f | sort | xargs _spore/target/release/spore format
-          fi
-          git diff --exit-code
+        run: spore format --check
 
       - name: Check Spore files
-        run: |
-          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
-          # via the example and platform modules rather than standalone file-mode checks.
-          # Standalone file examples
-          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
-          # Platform API modules
-          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
-          # Project-mode examples: validate with spore check
-          (
-            cd examples/hello-app
-            echo "✓ Checking project-mode example src/main.sp"
-            ../../_spore/target/release/spore check src/main.sp
-          )
-          # Check tests if they exist
-          if [ -d tests ]; then
-            find tests -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore check
-          fi
+        run: spore check
 
       - name: Build Spore files
-        run: |
-          # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
-          # via the example and platform modules rather than standalone file-mode builds.
-          # Standalone file examples
-          find examples -maxdepth 1 -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
-          # Platform API modules
-          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
-          # Project-mode examples: validate with spore build
-          (
-            cd examples/hello-app
-            echo "✓ Building project-mode example src/main.sp"
-            ../../_spore/target/release/spore build src/main.sp
-          )
-          # Check tests if they exist
-          if [ -d tests ]; then
-            find tests -name '*.sp' -type f | sort | xargs -n 1 _spore/target/release/spore build
-          fi
+        run: spore build
 
       - name: Run standalone hello example
-        run: _spore/target/release/spore run examples/hello.sp
+        run: spore run examples/hello.sp
 
       - name: Run project-mode hello-app example
         run: |
           (
             cd examples/hello-app
-            echo "✓ Running project-mode example src/main.sp"
-            ../../_spore/target/release/spore run src/main.sp
+            echo "✓ Running project-mode example (default entry)"
+            spore run
           )
 
       - name: Run Spore spec tests
@@ -130,4 +85,4 @@ jobs:
             echo "No Spore spec tests yet; skipping spore test."
             exit 0
           fi
-          find tests -name '*.sp' -type f | sort | xargs -r -n 1 _spore/target/release/spore test
+          spore test
