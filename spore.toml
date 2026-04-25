@@ -8,9 +8,6 @@ spore-version = ">=0.1.0"
 contract-module = "platform_contract"
 startup-contract = "main"
 adapter-function = "main_for_host"
-handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"]
-
-[capabilities]
-allow = ["Compute"]
+handled-effects = ["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"]
 
 [dependencies]
