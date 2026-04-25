@@ -36,27 +36,57 @@ jobs:
   spore:
     name: spore
     runs-on: ubuntu-latest
+    env:
+      SPORE_REPOSITORY: spore-lang/spore
+      SPORE_REF: d96212aa5a4cfe24759c21d8690642adfd357018
     steps:
       - uses: actions/checkout@v6
 
+      - name: Probe spore compiler access
+        id: spore-source
+        run: |
+          api_url="https://api.github.com/repos/${SPORE_REPOSITORY}/git/commits/${SPORE_REF}"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            "${api_url}")"
+
+          if [ "${status}" = "200" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+          if [ "${status}" != "404" ]; then
+            echo "::error::Unexpected response probing ${SPORE_REPOSITORY}@${SPORE_REF} (HTTP ${status})."
+            exit 1
+          fi
+
+          echo "::warning::Skipping compiler-backed Spore checks because the Spore compiler repository is not accessible. This can be resolved by configuring repository access credentials."
+
       - uses: actions/checkout@v6
+        if: steps.spore-source.outputs.available == 'true'
         with:
-          repository: spore-lang/spore
-          ref: d96212aa5a4cfe24759c21d8690642adfd357018
+          repository: ${{ env.SPORE_REPOSITORY }}
+          ref: ${{ env.SPORE_REF }}
           path: _spore
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.spore-source.outputs.available == 'true'
         with:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.spore-source.outputs.available == 'true'
         with:
           workspaces: _spore
 
       - name: Build spore compiler
+        if: steps.spore-source.outputs.available == 'true'
         run: cargo build --release --manifest-path _spore/Cargo.toml --bin spore
 
       - name: Format Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode checks.
@@ -75,6 +105,7 @@ jobs:
           git diff --exit-code
 
       - name: Check Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode checks.
@@ -93,6 +124,7 @@ jobs:
           fi
 
       - name: Build Spore files
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           # `src/host.sp` is a legacy compatibility shim; validate package-backed behavior
           # via the example and platform modules rather than standalone file-mode builds.
@@ -111,9 +143,11 @@ jobs:
           fi
 
       - name: Run standalone hello example
+        if: steps.spore-source.outputs.available == 'true'
         run: _spore/target/release/spore run examples/hello.sp
 
       - name: Run project-mode hello-app example
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           if [ -d examples/hello-app ]; then
             echo "✓ Running project-mode example examples/hello-app/src/main.sp"
@@ -121,6 +155,7 @@ jobs:
           fi
 
       - name: Run Spore spec tests
+        if: steps.spore-source.outputs.available == 'true'
         run: |
           if [ ! -d tests ]; then
             echo "No Spore spec tests yet; skipping spore test."
