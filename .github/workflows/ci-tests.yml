@@ -36,28 +36,13 @@ jobs:
   spore:
     name: spore
     runs-on: ubuntu-latest
-    env:
-      SPORE_REPOSITORY: spore-lang/spore
-      SPORE_REF: d96212aa5a4cfe24759c21d8690642adfd357018
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ env.SPORE_REPOSITORY }}
-          ref: ${{ env.SPORE_REF }}
-          path: _spore
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: _spore
+      - uses: astral-sh/setup-uv@v6
 
       - name: Install spore CLI
-        run: cargo install --locked --path _spore --bin spore --force
+        run: uv tool install spore-lang==0.0.2
 
       - name: Format Spore files
         run: spore format --check
@@ -80,9 +65,4 @@ jobs:
           )
 
       - name: Run Spore spec tests
-        run: |
-          if [ ! -d tests ]; then
-            echo "No Spore spec tests yet; skipping spore test."
-            exit 0
-          fi
-          spore test
+        run: spore test
