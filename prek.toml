@@ -23,6 +23,16 @@ hooks = [
 ]
 
 [[repos]]
+repo = "https://github.com/spore-lang/spore-pre-commit"
+rev = "v0.0.2"
+hooks = [
+  {
+    id = "spore-format",
+    files = "^(examples/[^/]+\\.sp|src/basic_cli/.*\\.sp)$"
+  },
+]
+
+[[repos]]
 repo = "https://github.com/crate-ci/typos"
 rev = "v1.33.1"
 hooks = [
