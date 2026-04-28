@@ -109,7 +109,7 @@ Applications targeting `basic-cli` must implement the same startup function name
 ## Tutorial Contract
 
 - `examples/hello-app/` is the **canonical project-mode example** — it is formatted, checked, built, and run in CI.
-- `examples/hello.sp` is a minimal standalone file for quick experiments (also validated in CI).
+- `examples/hello.sp` is a minimal standalone file for quick experiments.
 - `src/basic_cli/` is the API surface for the platform modules themselves.
 - `src/platform_contract.sp` is the package-owned startup contract surface.
 - Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.

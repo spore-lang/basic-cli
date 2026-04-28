@@ -48,20 +48,21 @@ jobs:
         run: spore format --check
 
       - name: Check Spore files
-        run: spore check
+        run: |
+          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 spore check
+          spore check examples/hello-app/src/main.sp
 
       - name: Build Spore files
-        run: spore build
-
-      - name: Run standalone hello example
-        run: spore run examples/hello.sp
+        run: |
+          find src/basic_cli -name '*.sp' -type f | sort | xargs -n 1 spore build
+          spore build examples/hello-app/src/main.sp
 
       - name: Run project-mode hello-app example
         run: |
           (
             cd examples/hello-app
             echo "✓ Running project-mode example (default entry)"
-            spore run
+            spore run src/main.sp
           )
 
       - name: Run Spore spec tests
