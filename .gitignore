@@ -2,6 +2,8 @@
 target/
 host/target/
 /.spore-store
+/_spore_temp/
+test_output.log
 
 # OS
 .DS_Store
