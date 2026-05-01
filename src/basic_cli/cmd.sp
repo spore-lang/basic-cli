@@ -1,6 +1,6 @@
 /// basic-cli platform — Process execution
 ///
-/// Run external commands with capability tracking.
+/// Run external commands with effect tracking.
 
 /// Run a command and capture its stdout as a string.
 /// Returns the full stdout output on success.

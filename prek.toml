@@ -23,6 +23,13 @@ hooks = [
 ]
 
 [[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+hooks = [
+  { id = "actionlint" },
+]
+
+[[repos]]
 repo = "https://github.com/spore-lang/spore-pre-commit"
 rev = "v0.0.3"
 hooks = [
