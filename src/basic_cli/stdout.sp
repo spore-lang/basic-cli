@@ -1,6 +1,6 @@
 /// basic-cli platform — Standard output operations
 ///
-/// Provides capability-gated access to stdout/stderr.
+/// Provides effect-gated access to stdout/stderr.
 
 /// Print a string to stdout without trailing newline.
 pub foreign fn print(s: Str) -> () ! IoError uses [Console]

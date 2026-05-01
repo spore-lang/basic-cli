@@ -1,13 +1,13 @@
 # basic-cli
 
-Basic CLI platform for [Spore](https://github.com/spore-lang/spore) — provides file I/O, process execution, environment variables, and standard I/O capabilities.
+Basic CLI platform for [Spore](https://github.com/spore-lang/spore) — provides file I/O, process execution, environment variables, and standard I/O effects.
 
 ## Overview
 
-In Spore, a **platform** bridges the pure, capability-tracked language with real-world side effects. `basic-cli` is the standard platform for command-line applications.
+In Spore, a **platform** bridges the pure, effect-tracked language with real-world side effects. `basic-cli` is the standard platform for command-line applications.
 
 ```
-Your Spore App (pure, capability-checked)
+Your Spore App (pure, effect-checked)
      ↕  (effect dispatch)
 basic-cli Platform API (.sp modules)
      ↕  (foreign fn)
@@ -18,7 +18,7 @@ Operating System
 
 ## Modules
 
-| Module | Capabilities | Description |
+| Module | Effects | Description |
 |--------|-------------|-------------|
 | `basic_cli.stdout` | `uses [Console]` | Standard output |
 | `basic_cli.stdin` | `uses [Console]` | Standard input |
@@ -45,9 +45,6 @@ default-entry = "app"
 
 [entries.app]
 path = "main.sp"
-
-[capabilities]
-allow = ["Compute"]
 
 [dependencies]
 basic-cli = { path = "../.." }
@@ -100,19 +97,19 @@ basic-cli/
 
 The current Platform contract MVP is intentionally split across two artifacts:
 
-1. `spore.toml` `[platform]` metadata names the contract module, the startup contract symbol, the adapter function, and the handled capabilities.
+1. `spore.toml` `[platform]` metadata names the contract module, the startup contract symbol, the adapter function, and the handled effects.
 2. `src/platform_contract.sp` owns the startup contract itself:
    - a hole-backed `main` function carries the authoritative startup signature
    - `main_for_host` is the Platform-owned adapter that receives the application startup function
 
-Applications targeting `basic-cli` must implement the same startup function name/signature in their entry module. The current compiler already resolves the package's `[platform]` metadata and `src/platform_contract.sp` to validate that startup shape. Runtime support is currently specialized to package-backed `basic-cli`: imported `basic_cli.*` foreign functions route through the built-in basic-cli host profile, while generic `[platform].handled-effects` enforcement and startup `spec` stacking are still follow-up work.
+Applications targeting `basic-cli` must implement the same startup function name/signature in their entry module. The current compiler already resolves the package's `[platform]` metadata and `src/platform_contract.sp` to validate that startup shape. Runtime support is currently specialized to package-backed `basic-cli`: imported `basic_cli.*` foreign functions route through the built-in basic-cli host profile, while generic handled-effects enforcement and startup `spec` stacking are still follow-up work.
 
 `src/host.sp` remains as a compatibility copy of the adapter for older references; current manifest-backed projects use `src/platform_contract.sp`.
 
 ## Tutorial Contract
 
 - `examples/hello-app/` is the **canonical project-mode example** — it is formatted, checked, built, and run in CI.
-- `examples/hello.sp` is a minimal standalone file for quick experiments (also validated in CI).
+- `examples/hello.sp` is a minimal standalone file for quick experiments.
 - `src/basic_cli/` is the API surface for the platform modules themselves.
 - `src/platform_contract.sp` is the package-owned startup contract surface.
 - Only add `tests/` when the repo has real Spore-side regression coverage worth running with `spore test`.
@@ -125,9 +122,9 @@ If you want to add a new tutorial/example, treat this as the bar:
 
 ## Design Philosophy
 
-Following Spore's [SEP-0003 (Effect Capability System)](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-capability-system.md):
+Following Spore's [SEP-0003 (Effect System)](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-system.md):
 
-- **Capability-gated**: Every I/O function declares its required capabilities via `uses [Cap]`
+- **Effect-gated**: Every I/O function declares its required effects via `uses [Effect]`
 - **Cost-annotated**: Platform functions can carry `cost [c, a, i, p]` budgets where meaningful
 - **Error-typed**: Functions declare error sets via `! ErrorType`
 - **Pure by default**: The platform boundary is the only place side effects occur
@@ -138,7 +135,7 @@ Following Spore's [SEP-0003 (Effect Capability System)](https://github.com/spore
 
 The canonical example is the **package-backed project-mode** `examples/hello-app/` application. It already validates and runs with `[project].platform = "basic-cli"`, an in-repo path dependency, and `import basic_cli.stdout`.
 
-The standalone file example (`examples/hello.sp`) stays around for quick experiments. The main remaining platform gaps are generic `[platform].handled-effects` enforcement, startup `spec` stacking, and lifting the runtime from its current explicit `basic-cli` host profile to a more general package-backed mechanism.
+The standalone file example (`examples/hello.sp`) stays around for quick experiments. The main remaining platform gaps are generic handled-effects enforcement, startup `spec` stacking, and lifting the runtime from its current explicit `basic-cli` host profile to a more general package-backed mechanism.
 
 ## License
 
