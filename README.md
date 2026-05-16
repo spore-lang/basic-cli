@@ -102,7 +102,7 @@ The current Platform contract MVP is intentionally split across two artifacts:
    - a hole-backed `main` function carries the authoritative startup signature
    - `main_for_host` is the Platform-owned adapter that receives the application startup function
 
-Applications targeting `basic-cli` must implement the same startup function name/signature in their entry module. The current compiler already resolves the package's `[platform]` metadata and `src/platform_contract.sp` to validate that startup shape. Runtime support is currently specialized to package-backed `basic-cli`: imported `basic_cli.*` foreign functions route through the built-in basic-cli host profile, while generic handled-effects enforcement and startup `spec` stacking are still follow-up work.
+Applications targeting `basic-cli` must implement the same startup function name/signature in their entry module. The current compiler already resolves the package's `[platform]` metadata and `src/platform_contract.sp` to validate that startup shape. Project-mode interpreter runtime support now goes through a generic package-backed host path: imported public `foreign fn` declarations bind by canonical operation name (`print`, `file_exists`, `exit`, etc.) instead of hard-coding the `basic-cli` package name. Startup `spec` stacking and native lowering for `foreign fn` platform projects are still follow-up work.
 
 `src/host.sp` remains as a compatibility copy of the adapter for older references; current manifest-backed projects use `src/platform_contract.sp`.
 
@@ -152,7 +152,7 @@ Following Spore's [SEP-0003 (Effect System)](https://github.com/spore-lang/spore
 
 The canonical example is the **package-backed project-mode** `examples/hello-app/` application. It already validates and runs with `[project].platform = "basic-cli"`, an in-repo path dependency, and `import basic_cli.stdout`.
 
-The pure standalone file example (`examples/hello.sp`) stays around for quick experiments. The main remaining platform gaps are generic handled-effects enforcement, startup `spec` stacking, native lowering for `foreign fn` platform projects, and lifting the runtime from its current explicit `basic-cli` host profile to a more general package-backed mechanism.
+The pure standalone file example (`examples/hello.sp`) stays around for quick experiments. The main remaining platform gaps are startup `spec` stacking and native lowering for `foreign fn` platform projects.
 
 ## License
 

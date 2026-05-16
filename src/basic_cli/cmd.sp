@@ -7,7 +7,7 @@
 pub foreign fn process_run(cmd: Str, args: List[Str]) -> Str ! ExecError uses [Spawn]
 
 /// Run a command and return its exit code.
-pub foreign fn process_run_status(cmd: Str, args: List[Str]) -> I32 ! ExecError uses [Spawn]
+pub foreign fn process_run_status(cmd: Str, args: List[Str]) -> Option[U8] ! ExecError uses [Spawn]
 
 /// Exit the current process with the provided status code.
-pub foreign fn exit(code: I32) -> Never uses [Exit]
+pub foreign fn exit(code: U8) -> Never uses [Exit]

@@ -192,15 +192,20 @@ pub fn host_process_run_status(cmd: &str, args: &[String]) -> HostResult {
             kind: "ExecError".into(),
             message: format!("{cmd}: {e}"),
         })?;
-    Ok(HostValue::Int(status.code().unwrap_or(-1) as i64))
+    let code = match status.code() {
+        Some(code) => {
+            let code = u8::try_from(code).map_err(|_| HostError {
+                kind: "ExecError".into(),
+                message: format!("{cmd}: exit code {code} is out of range for U8"),
+            })?;
+            Some(Box::new(HostValue::Int(i64::from(code))))
+        }
+        None => None,
+    };
+    Ok(HostValue::Option(code))
 }
 
-pub fn host_exit(code: i64) -> HostResult {
-    let code = u8::try_from(code).map_err(|_| HostError {
-        kind: "ExitError".into(),
-        message: format!("exit code {code} is out of range for 0..=255"),
-    })?;
-
+pub fn host_exit(code: u8) -> HostResult {
     #[cfg(test)]
     {
         Err(HostError {
@@ -355,9 +360,20 @@ mod tests {
     fn process_run_status_echo() {
         let result = host_process_run_status("echo", &["hello".into()]).unwrap();
         match result {
-            HostValue::Int(code) => assert_eq!(code, 0),
-            _ => panic!("expected Int"),
+            HostValue::Option(Some(code)) => match *code {
+                HostValue::Int(code) => assert_eq!(code, 0),
+                other => panic!("expected U8 code payload, got {other:?}"),
+            },
+            other => panic!("expected Some(U8), got {other:?}"),
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn process_run_status_signal_returns_none() {
+        let result = host_process_run_status("sh", &["-c".into(), "kill -TERM $$".into()])
+            .expect("signal termination should still report status");
+        assert!(matches!(result, HostValue::Option(None)));
     }
 
     #[test]
@@ -383,13 +399,6 @@ mod tests {
         let err = host_exit(17).unwrap_err();
         assert_eq!(err.kind, "Exit");
         assert!(err.message.contains("17"));
-    }
-
-    #[test]
-    fn exit_rejects_out_of_range_codes() {
-        let err = host_exit(256).unwrap_err();
-        assert_eq!(err.kind, "ExitError");
-        assert!(err.message.contains("0..=255"));
     }
 
     #[test]
