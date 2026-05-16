@@ -11,9 +11,7 @@ Thumbs.db
 .idea/
 .vscode/
 .cursor/
+.learnings/
 *.swp
 *.swo
 *~
-
-# Cargo lock for libraries (keep for binaries)
-# Cargo.lock
