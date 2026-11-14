@@ -4,8 +4,8 @@
 
 pub type List[A: Type] {
     cases {
-        pub case Empty;
-        pub case Item { pub field value: A; pub field rest: List[A]; }
+        case Empty;
+        case Item { pub field value: A; pub field rest: List[A]; }
     }
 }
 
@@ -18,16 +18,16 @@ pub type Args {
 
 pub type Exit {
     cases {
-        pub case Success;
-        pub case Failure;
-        pub case Usage;
+        case Success;
+        case Failure;
+        case Usage;
     }
 }
 
 pub type Channel {
     cases {
-        pub case Stdout;
-        pub case Stderr;
+        case Stdout;
+        case Stderr;
     }
 }
 
@@ -42,24 +42,24 @@ pub type Binding {
 
 pub type Interface {
     cases {
-        pub case Single { pub field binding: Binding; }
-        pub case Group { pub field bindings: List[Binding]; }
+        case Single { pub field binding: Binding; }
+        case Group { pub field bindings: List[Binding]; }
     }
 }
 
 pub type Input {
     cases {
-        pub case Ready { pub field args: Args; }
-        pub case Usage { pub field message: Str; }
-        pub case Failure { pub field message: Str; }
+        case Ready { pub field args: Args; }
+        case Usage { pub field message: Str; }
+        case Failure { pub field message: Str; }
     }
 }
 
 pub type Decision {
     cases {
-        pub case Invoke { pub field binding: Binding; pub field values: List[Str]; }
-        pub case Help { pub field text: Str; }
-        pub case Usage { pub field message: Str; }
+        case Invoke { pub field binding: Binding; pub field values: List[Str]; }
+        case Help { pub field text: Str; }
+        case Usage { pub field message: Str; }
     }
 }
 
