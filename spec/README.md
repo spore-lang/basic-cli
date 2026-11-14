@@ -62,6 +62,70 @@ fn main(args: Args) -> Exit {
 宏观分支已写在 `platform.sp`；业务返回的 `Exit` 不被解析层重新解释。
 正常返回只说明退出状态，不自动产生任务完成、权限或预算证明。
 
+## Args 的职责与解释顺序
+
+`Args` 是一次调用的已解码输入快照，包含 `program: Str` 和
+`values: List[Str]`。`program` 来自 `argv[0]`，只用于用法展示；它不证明
+可执行文件身份，也不授予路径或业务权限。`values` 保存剩余参数，
+保留命令名、顺序、空字符串、空白和参数边界。
+
+例如启动器传入 `bootstrap run "my repo"` 对应的 argv 时，
+`program` 为 `"bootstrap"`，`values` 为两个字符串 `"run"` 和
+`"my repo"`。用于 shell 分组的引号不属于 argv 内容；参数中实际存在的
+引号仍原样保留。`Args` 不重新拆词、展开变量、通配符或文件引用。
+这里的列表写法用于说明数据；实际 Spore 构造使用
+`List.Item` / `List.Empty`，见 `operations.sp` 中 `Args` 的例子。
+
+处理依次经过四个边界：
+
+1. `read_args` 读取一次宿主 argv，完成无损解码，返回 `Input.Ready(args)`、
+   `Input.Usage` 或 `Input.Failure`；`Ready` 仅表示输入读取与编码有效。
+2. `prepare` 将同一个 `Args` 与编译器生成的 `Interface` 结合。Group 消费
+   命令名，Single 不消费命令名；随后处理帮助、开头的 `--` 和参数数量。
+3. `Decision.Invoke` 携带选定的 Binding 及剩余业务参数。`Args.values`
+   中的命令名与分隔标记不会进入 `Binding.invoke` 的 values。
+4. `dispatch` 才调用业务函数。例如 `run("my repo")` 只收到 repository；
+   目录是否存在、权限和恢复条件继续由业务契约检查。
+
+以单个必填 Str 参数的 Group 命令 `run` 为例：
+
+| Args.values 的内容 | prepare 的结果 |
+| --- | --- |
+| `["run", "my repo"]` | Invoke(run, `["my repo"]`) |
+| `["run", ""]` | Invoke(run, `[""]`)；空字符串是否可用由业务判断 |
+| `["run", "--help"]` | Help；不调用 run |
+| `["run", "--", "--help"]` | Invoke(run, `["--help"]`) |
+| `["run", "repo", "--help"]` | Usage；不调用 run |
+| `[]` 或 `["missing", "repo"]` | Usage；不默认选择某个命令 |
+
+`List` 在本稿中提供有限、有序序列的最小定义，不规定宿主 ABI 的内存
+布局。`Args` 没有解析游标、已选命令、默认参数或环境变量；增加新的
+业务参数只修改处理函数声明及其绑定，不修改 `Args` 的结构。
+已有 `Args` 可直接供解析示例使用，无须读取真实进程输入。
+
+## 函数 Examples 与后续执行
+
+每个函数的前置注释包含 `Examples`，使用 Markdown 的 `spore` 代码块，
+以 `Given:` 说明输入和测试环境，以 `Expect:` 写出结果及可观察行为。
+代码块使用真实函数签名；Given 中的命名值是待提供的测试数据，不能
+假定它们是现有全局变量或新增的测试 API。未声明已有支持的断言、
+列表简写、fixture 构造器和执行命令不会混入示例代码。
+
+当前所有 Examples 都是 **pending**。代码出现、语法识别、现有 CI 或
+`no_run` 式的仅编译结果都不等于示例已执行通过。后续由
+`validation.evidence` 供应文档提取、模块上下文、完整测试数据、宿主
+测试环境和断言，并逐例保存实际结果。缺少任一依赖仍为 pending；
+依赖已齐备而实际结果不符为 failed；执行并核对全部期望后才为 passed。
+
+纯计算示例比较结果值；输入输出示例还检查 argv、stdout、stderr、
+刷新失败与业务调用；持久化或恢复示例须观察实际记录和重启行为。
+这项要求扩展现有验证义务，不新增占位公设，也不关闭函数中的 hole。
+
+格式参考 Python 的 [doctest](https://docs.python.org/3/library/doctest.html)
+与 Rust 的 [documentation tests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html)。
+借鉴前者的输入／预期结果关联，以及后者的代码块提取与可执行检查；
+具体 runner、断言 API 和编译失败示例格式尚待语言工具确定。
+
 ## 完整 hole 清单
 
 所有条目当前均未完成。函数体中的 `_` 是待实现义务，不是值、默认
@@ -118,6 +182,9 @@ fn main(args: Args) -> Exit {
 分别报告语法识别、类型／效果检查和行为观察。旧 host 测试、旧编译器
 成功或适配文法识别均不能关闭新版义务。未解 `_`、未供给的包装体或
 未完成的效果隔离都必须保持 pending，不能当作通过或新增公设。
+还须逐例执行函数 Examples：实现提取器、提供 Given 所需的完整值和
+可控宿主环境，将 Expect 变成结果及行为断言，并保留实际执行证据；
+提取、测试数据、断言或运行支持缺失时不得把该例标为通过。
 
 ## 首版验收矩阵
 

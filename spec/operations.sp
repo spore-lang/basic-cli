@@ -9,6 +9,20 @@ pub type List[A: Type] {
     }
 }
 
+# 一次调用的已解码输入快照；仍未选择命令、检查元数或处理 --help / --。
+# Args 只携带输入数据；命令定义、参数 schema 与业务权限都不由它提供。
+# Examples
+# Given: 启动器传入 argv = ["bootstrap", "run", "my repo"]；引号已由启动器处理。
+# ```spore
+# Args {
+#     program: "bootstrap",
+#     values: List[Str].Item {
+#         value: "run",
+#         rest: List[Str].Item { value: "my repo", rest: List[Str].Empty {} }
+#     }
+# }
+# ```
+# Expect: values 中只有两个元素；"my repo" 保持为一个参数。此构造表达式本身不读取进程输入。
 pub type Args {
     # program 只用于展示，不能作为可信路径或权限依据。
     pub field program: Str;
@@ -63,6 +77,19 @@ pub type Decision {
     }
 }
 
+#
+# Examples
+# Given: 宿主 argv 为 ["bootstrap", "run", "my repo", ""]，编码有效。
+# ```spore
+# read_args()
+# ```
+# Expect: 返回 Ready(Args)，program 为 "bootstrap"，values 依次为 "run"、"my repo"、""；不裁剪或再次拆词，不输出终端。
+#
+# Given: Unix 宿主原始参数中包含非法 UTF-8 字节 0xff。
+# ```spore
+# read_args()
+# ```
+# Expect: 返回 Input.Usage；不返回 Ready，不写 stdout / stderr，不调用业务函数。
 pub fn read_args() -> Input {
     # hole: host.arguments
     # 输入：宿主提供的本次原始 argv；本函数不得读取环境变量、业务文件或启动业务。
@@ -74,6 +101,25 @@ pub fn read_args() -> Input {
     _
 }
 
+#
+# Examples
+# Given: interface 是从完整 run(repository: Str) -> Exit 生成的 Group；args.values 为 ["run", "my repo"]，program 为 "bootstrap"。
+# ```spore
+# prepare(interface, args)
+# ```
+# Expect: 返回 Invoke，同一 run Binding 的 values 仅有 "my repo"；不调用 invoke，不写终端。
+#
+# Given: 同一 Group 中 run 接受一个 Str；args.values 为 ["run", "--", "--help"]。
+# ```spore
+# prepare(interface, args)
+# ```
+# Expect: 返回 Invoke，业务 values 仅有字面字符串 "--help"；不产生 Help。
+#
+# Given: 同一 Group 中 run 接受一个 Str；args.values 为 ["run", "repo", "--help"]。
+# ```spore
+# prepare(interface, args)
+# ```
+# Expect: 返回 Usage；不忽略多余参数、不调用 run，也不写终端。
 pub fn prepare(interface: Interface, args: Args) -> Decision {
     # hole: cli.prepare
     # 输入：compile.bindings 生成的有效 Interface 和一次已解码 Args；所有参数均为必填 Str。
@@ -88,6 +134,19 @@ pub fn prepare(interface: Interface, args: Args) -> Decision {
     _
 }
 
+#
+# Examples
+# Given: 输出流先报告短写两个字节，之后接受剩余字节并成功刷新。
+# ```spore
+# write_text(Channel.Stdout {}, "ready\n")
+# ```
+# Expect: 返回 true；stdout 恰得到一次 ready 和一个换行，完成刷新；stderr 为空，不重复已写前缀。
+#
+# Given: 文本字节已写完，但 stdout 的刷新报告永久失败。
+# ```spore
+# write_text(Channel.Stdout {}, "ready\n")
+# ```
+# Expect: 返回 false；不把已经写出的文本重复发送，也不切换输出流补报。
 pub fn write_text(channel: Channel, text: Str) -> Bool {
     # hole: host.write
     # 输入：明确的 stdout / stderr 与完整文本；仅写指定流，不增加换行或改写内容。
