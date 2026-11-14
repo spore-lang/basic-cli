@@ -1,11 +1,11 @@
 # basic-cli 新版 platform：启动、命令调用与退出的宏观契约。
 # MLTT 基线；type / case、显式 let 模式，普通类型参数使用 Type。
-# operations.sp 定义平台数据与三个函数 hole；List 来自标准库，README.md 登记编译与运行集成 hole。
+# operations.sp 定义平台数据、名称比较与三个函数 hole；List 来自标准库，README.md 登记编译与运行集成 hole。
 # 文件间名字装配仍待实现，不能把按阅读顺序出现当作已经导入。
 # 此处的运行层函数签名不授予在 MLTT 证明求值中执行 I/O 或任意回调的能力。
 
 # 一次调用绑定已解码输入与完整根命令；名称、动作和子树只由 Command 描述。
-# 命令声明的适配与 Auto 消解见 compile.bindings；Cli 不覆盖根动作，也不复制 Command 的字段。
+# 处理函数声明的适配见 compile.bindings；名称 case 保持原值，Cli 不覆盖根动作，也不复制 Command 的字段。
 pub type Cli {
     pub field args: Args;
     pub field command: Command;
@@ -28,7 +28,7 @@ pub type Cli {
     }
 }
 
-# command 是经过静态适配且已消解 Auto 的完整根命令；构造仅保存输入和该命令，不选择默认动作。
+# command 是已完成处理函数绑定的完整根命令；构造仅保存输入和该命令，不选择默认动作或改写 name。
 # 构造不会解析 values、选择子命令、输出或调用 handler。
 # Examples
 # Given: root 是已生成的默认帮助根，含完整 run(repository: Str) -> Exit 的节点。

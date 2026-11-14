@@ -1,7 +1,7 @@
 # basic-cli：最小 MLTT platform spec
 
 这是新版设计稿，尚未实现或通过类型、证明、运行验证。入口是
-[platform.sp](platform.sp)，数据和三个函数 hole 在
+[platform.sp](platform.sp)，数据、名称比较和三个函数 hole 在
 [operations.sp](operations.sp)。本目录未接入现有 `spore.toml`；旧
 `src/platform_contract.sp`、I/O 模块和 Rust host 继续描述旧实现。
 
@@ -62,28 +62,27 @@ fn main(args: Args) -> Exit {
 | 声明字段 | 含义与缺省规则 |
 | --- | --- |
 | `handler` | 当前节点自身的完整具名处理函数；省略时采用框架帮助动作 |
-| `name` | 三种情况：Str 精确名称、`CommandName.Any {}`、`CommandName.Auto {}`；默认为 Auto |
+| `name` | `CommandName.Exact { value: "run" }`、`CommandName.Any {}` 或 `CommandName.Auto {}`；默认为 Auto |
 | `subcommands` | 按匹配优先级排列的直接子节点，默认 `[]` |
 
-三种情况在 `CommandName` 中分别表示为 `Exact { value: Str }`、`Any` 和
-`Auto`。`name: "run"` 是显式字符串的声明写法，经编译期适配成为 Exact。
-`Auto` 从处理函数的声明名取得精确名称；省略 name 与显式写
-`name: CommandName.Auto {}` 完全等价，有业务处理函数时都在编译期消解为 Exact。
-它不是运行时通配或反射，也不会执行函数来获取名称。
+三种情况直接使用 CommandName 的 case 构造式，name 字段不接受裸 Str。
+省略 name 与显式写 `name: CommandName.Auto {}` 完全等价；Auto 保留在
+命令值中，名称比较与帮助直接读取已有的 `Binding.name`。
+函数声明名在生成绑定时保存，不在运行时反射函数，也不调用函数来获取名称。
 
-没有处理函数的非根节点必须显式提供 Exact 或 Any 名称，Auto 在此处无法
-派生名称，产生编译诊断。非根 Exact 名称必须非空、不含空白或控制字符，
-且不以 `-` 开头；函数名派生后也经过同一检查，不自动
+没有处理函数的非根节点必须显式提供 Exact 或 Any 名称，Auto 在此处没有
+可用的函数声明名，产生编译诊断。非根 Exact.value 与 Auto 所用的 Binding.name
+必须非空、不含空白或控制字符，且不以 `-` 开头；不自动
 转换下划线或大小写。空子列表合法，同名兄弟节点合法且首个优先。
 名称相同不会合并子树，后面的同名节点也不能在前者失败时被尝试。
 
 `CommandName.Any {}` 在子命令位置匹配并消费一个普通输入元素；
-Exact 与 Any 共同按列表顺序取首个匹配者，不额外优先选择 Exact。
+Exact、Any、Auto 共同按列表顺序取首个匹配者，不按名称模式额外排序。
 Any 必须有一个剩余元素，不在空输入时自动进入。它不截获 `--help`、
 `--` 或以 `-` 开头的未转义输入，这些继续遵守控制标记与参数错误规则。
 空字符串或含空白的输入仍是一个完整元素，Any 不拆词或改写它。
 
-它是类型的分支值，不是字符串通配符：`"*"` 仍是普通精确名称，`_`
+它是类型的分支值，不是字符串通配符：`CommandName.Exact { value: "*" }` 仍是精确名称，`_`
 仍是未完成的洞。根已由 cli 指定，根的 Any 不消费业务参数；只有选择
 子节点时才按其名称消费输入。通配消耗的词进入帮助与诊断的实际路径，
 不自动追加到处理函数的位置参数中。
@@ -96,9 +95,8 @@ Any 必须有一个剩余元素，不在空输入时自动进入。它不截获 
 根节点由 cli 的第二个参数指定，解析直接从该节点正文开始；已有 Exact
 名称的子树也可作为根复用，不要求用户再输入该名称。帮助前缀始终来自
 `Args.program`，不把 Any 或原根名称显示为额外的调用词。
-根的 Auto 遇到业务 handler 时派生 Exact 函数名，作为根时仍不消费；
-根的 Auto 遇到框架 Help 时解析为 Any，因为根不参与名称匹配。
-这个根特例同时适用于省略 name 与显式 Auto，非根节点不得借此隐式变成通配项。
+根的 name 无论是哪种 case 都保持原值；根不参与名称比较，无函数的帮助根
+也可以保留 Auto。它作为非根节点复用时仍须满足子节点的名称要求。
 
 上面的 bootstrap 根默认选择 init，同时保留显式 init 子命令。当前
 `init(repository: Str, contract_file: Str, control_file: Str)` 有三个必填
@@ -123,7 +121,7 @@ Command 的声明，cli 不再接收子列表或额外选择默认动作。
 
 ```spore
 static skills = Command {
-    name: "skill",
+    name: CommandName.Exact { value: "skill" },
     subcommands: [Command { handler: train }],
 };
 
@@ -131,7 +129,7 @@ fn main(args: Args) -> Exit {
     cli(args, Command {
         name: CommandName.Any {},
         subcommands: [
-            Command { name: "agent", subcommands: [skills] },
+            Command { name: CommandName.Exact { value: "agent" }, subcommands: [skills] },
             Command {
                 handler: run,
                 subcommands: [Command { handler: subcommand }],
@@ -159,9 +157,9 @@ bootstrap                 自身动作：help
 
 ```spore
 Command {
-    name: "agent",
+    name: CommandName.Exact { value: "agent" },
     subcommands: [
-        Command { name: "skill", subcommands: [Command { handler: train }] },
+        Command { name: CommandName.Exact { value: "skill" }, subcommands: [Command { handler: train }] },
         Command { name: CommandName.Any {}, handler: fallback },
     ],
 }
@@ -182,16 +180,12 @@ handler 转为 `Handler.Function { binding: ... }`。省略 handler 则使用
 `operations.sp` 定义 Command、Handler 和三分支 CommandName。
 直接函数引用的源写法先完成适配，再检查这些字段的类型；不能声称 f
 本身属于 Handler，或普通函数值能恢复声明名与参数名。name 的字段默认值
-只是常量 Auto；从 handler 派生名称在编译期适配阶段完成，不让默认初值
-访问正在构造的实例或其他字段。
-Str 名称适配成 `CommandName.Exact { value: name }`；显式 Any 保留为
-同一分支，不把 Str 的通配符拼写解释成 Any。显式名称只覆盖路由名，
-Binding.name 仍保留原函数声明名。已适配的 Handler 不重复包装；Auto
-使用同一 Binding 的声明来源解析，不能信任任意伪造的 name 字段。
-已解析的 Exact / Any 按普通字段规则检查，不重复包装。
-完整可运行树中不得残留 Auto；消解失败是编译错误，不延迟到 prepare。
-Cli 只有 args 与 command，不参与 handler 或名称适配；cli 直接保存
-已经检查的根 Command。
+只是常量 Auto，不访问正在构造的实例或其他字段。
+name 按普通 CommandName 字段检查，不提供 Str 转换或 Auto 改写。
+Exact 只覆盖匹配名称，Binding.name 仍保存同一已检查函数的声明名；
+Auto 直接使用这份元数据。已适配的 Handler 不重复包装。
+Cli 只有 args 与 command，不参与 handler 适配或名称比较；cli 直接保存
+已经检查的根 Command，所有名称 case 保持原值。
 
 适配后的节点都具有 Command 类型，列表仍是普通 `List[Command]`。
 静态子树须验证为有限、无环；不会为了发现命令而执行业务或注册回调。
@@ -263,11 +257,17 @@ static empty_args = Args { program: "bootstrap", values: [] };
 1. 剩余输入恰为 `["--help"]` 时，产生当前节点的 Help。
 2. 剩余输入以 `--` 开头时，移除一次标记，停止路由与选项识别，将
    后续原值交给当前节点自身动作。
-3. 有剩余输入时按 subcommands 顺序寻找首个匹配者：Exact 与下一参数
-   精确相等，Any 匹配一个不以 `-` 开头的输入元素。命中即选定，消费
-   该原始元素并记录实际路径，在子节点重复规则；Exact 不越过前面的 Any。
+3. 有剩余输入且首元素不以 `-` 开头时，按 subcommands 顺序调用
+   `matches_name`：Exact 比较 value，Auto 比较 Binding.name，Any 接受该元素。
+   首个命中即选定，消费该原始元素并记录实际路径，在子节点重复规则；
+   名称模式不改变列表优先级。
 4. 输入为空或没有子节点命中时，选定当前节点自身动作；开始检查位置
    参数后，不再寻找子命令。
+
+名称比较的完整正文是 `operations.sp` 的 `matches_name`，一个 match 同时
+查看 name 与 handler。它只返回 Bool；控制标记、顺序选择、路径与输入消费
+属于上述路由步骤。Auto / Help 没有可比较的声明名，返回 false；静态装配
+仍拒绝这种非根节点，不能把 false 当成无效配置的兜底。
 
 `Handler.Function` 按原函数签名核对参数。`Handler.Help` 只接受空参数，
 返回与本节点 `--help` 相同的文本；未知名称或多余参数返回 Usage。
@@ -276,7 +276,7 @@ static empty_args = Args { program: "bootstrap", values: [] };
 未转义时以 `-` 开头的业务参数、混用的 `--help`、中途出现的 `--`、
 缺参和多参均为 Usage。子命令路径必须连续地出现在业务参数之前。
 
-Exact 或 Any 命中后不回退到父动作或后面的节点，也不合并子树。
+名称命中后不回退到父动作或后面的节点，也不合并子树。
 进入子命令不执行父函数；没有子命令命中时，一个接受 Str 的自身函数
 可能接收拼错的命令名，此时该字符串是否合法由业务判断。
 新增同名子命令会优先于原有的自身参数解释；需要稳定地传入这种字符串
@@ -313,8 +313,8 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。实
 | `["run", "some_arg", "subcommand"]` | run 的多参 Usage；不会中途转入 subcommand |
 
 每个节点的帮助包含自身动作签名和退出规则，以及按声明顺序排列的
-全部直接子命令及各自的自身签名；缺省动作标示为显示帮助，Any 子项
-明确标示为通配项。重叠匹配项保持原顺序并注明首个优先，不假定每一项
+全部直接子命令及各自的自身签名；Exact 显示 value，Auto 显示 Binding.name，
+Any 标示为通配项，缺省动作标示为显示帮助。重叠匹配项保持原顺序并注明首个优先，不假定每一项
 都可到达。已选节点的帮助使用实际消费的完整路径，包括 Any 消费的词，
 不把原函数声明名或 Any 的显示标记替换成路径词。
 错误定位到最终选定的节点；帮助与错误只产生数据，不能执行业务。
@@ -369,35 +369,33 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。实
 名称、参数顺序、参数类型和返回类型，生成参数名列表与完整
 `Binding.invoke` 包装体，再装入 `Handler.Function`。省略 handler 时
 使用 `Handler.Help`；省略 subcommands 时使用空的标准 `List[Command]`。
-name 接受静态可确定的 Str 或 CommandName 的 Exact / Any / Auto；
-字段默认值为 Auto，显式 Auto 与省略 name 相同。Str 适配为 Exact；
-显式 Exact / Any 保持不变，均不被函数声明名覆盖。Auto 遇到业务函数时
-从同一已检查声明派生 Exact；遇到 Help 时仅根解析为 Any，非根产生编译诊断。
-Auto 不读取 Args 或宿主程序名，也不调用 handler；函数不存在、来源不可确定
-或不符合签名时不得用 Any 兜底。派生名称在声明适配阶段完成，不用跨字段
-默认初值实现；所有字段适配后检查类型，并检查有效运行树已无 Auto。
-显式 Any 可用于根或子节点，非根 Exact 则须通过名称检查。
+name 按普通 CommandName 字段检查，Exact / Any / Auto 均保持原值，
+默认值为 Auto；裸 Str 是类型错误。Auto 不需要名称转换或消解步骤。
+非根 Auto 必须有 Handler.Function，且其 Binding.name 来自同一已检查声明；
+无函数的非根节点必须显式使用 Exact 或 Any。根跳过名称比较，Help 根可保留 Auto。
 
 只接受非泛型、参数均为必填 `Str`、返回 `Exit` 的函数；有参数默认值、
 依赖参数、匿名或动态选择的函数、不可见符号、未完成函数体时产生编译
 诊断，不生成可运行产物。包装体把参数原样交给原函数，只在 Invoke
 分支调用时执行；构造、帮助和解析期间不调用业务。
 
-遍历所有静态子树引用，检查有限、无环与非根 Exact 名称有效。空子列表合法，
-Exact 与 Any 均保留原顺序；即使节点被前面的同名或通配节点遮蔽，也必须完整
+遍历所有静态子树引用，检查有限、无环，以及非根 Exact.value 和 Auto 所用
+Binding.name 的名称有效性。空子列表合法，三种 case 均保留原顺序；
+即使节点被前面的同名或通配节点遮蔽，也必须完整
 检查其声明。跨父节点复用不固化父路径，不合并或排序子树。
 验证零／一／三个参数的包装、异签名节点的同质列表、显式改名及缺省
-命名、显式 Auto 与省略的等价性、Help 根的 Auto 消解、非根 Help 的 Auto 拒绝，
+命名、显式 Auto 与省略的等价性、Help 根保留 Auto、非根 Help 的 Auto 拒绝，
 以及函数改名和签名变化后的帮助与调用一致性。复用声明按挂载位置核验，
 Help + Auto 的根声明不能作为未命名子节点复用来绕过拒绝；显式 Any 子树可复用。
 源构造到 Handler 的适配、参数元数与来源保真仍是生成器验证义务，
-尚无 MLTT 证明；普通
-函数值的运行时类型不被假定含有参数名。
+尚无 MLTT 证明；普通函数值的运行时类型不被假定含有参数名。
 
 **compile.assembly**：输入明确版本的本 spec、应用和所选 platform，
 同时供应 Spore Spec 指定的标准库 List，固定它及 Empty／Item 的声明
 身份；平台和应用必须使用同一个类型。完成列表字面量展开与元素类型
 推断，不能按局部同名类型替换，也不能用缺失的标准库绑定继续构建。
+为 `matches_name` 的 `==` 供应 `Str` 的精确布尔相等比较，不裁剪、忽略
+大小写或规范化输入；该操作不是内核定义相等或命题相等。
 解析文件间名字，按 main 的签名选择装配：业务 Str 参数入口生成一个
 绑定 main、没有子命令的根及 `Args -> Exit` 适配器；`main(args: Args)`
 入口检查静态树并构造 Cli、调用一次 `.run()`。只对明确登记的处理函数
@@ -434,7 +432,7 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 成功或适配文法识别均不能关闭新版义务。未解 `_`、未供给的包装体或
 未完成的效果隔离都必须保持 pending，不能当作通过或新增公设。
 命令树验收包含二级与三级路径、子树复用、各层缺省帮助、自定义根与
-父节点动作、空子列表、混合元数、Exact / Any 顺序优先、错误不回退、
+父节点动作、空子列表、混合元数、Exact / Any / Auto 顺序优先、错误不回退、
 `--` 强制自身动作，以及开始参数解析后不再路由。无效名称、循环子树、
 动态声明和不合格函数必须被拒绝；构造、帮助、解析错误均无业务调用。
 分别记录“期望绑定”与实际业务调用，不能只凭 Exit.Success 判断选对了
@@ -477,6 +475,8 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 | 两个无子命令的 run 节点都能接受输入；首个缺参但后者可接受 | 两者都可接受时只调用首个一次；首个缺参时报告它的 Usage，不尝试后者 |
 | 子列表 `[Any(first), Exact("run", second)]`，输入 `run repo`，两者都接受一个 Str | 只调用 first("repo")；Any 消费 run，不优先执行后面的具名节点 |
 | 子列表 `[Exact("run", first), Any(second)]`，输入 `other repo`，两者都接受一个 Str | 只调用 second("repo")；实际路径保留 other，处理函数不额外收到该名称 |
+| 子列表依次为 Any(first)、Auto(run)，或顺序相反；输入 `run repo`，两者都接受一个 Str 且无子命令 | 均只选择列表中首个节点，Auto 不改写为 Exact，也不越过前面的 Any |
+| 子列表依次为 Auto(first)、Exact("first", second)，均无子命令；first 接受两个 Str，second 接受一个，输入 `first repo` | 返回 first 的缺参 Usage，不尝试 second；帮助列出相同匹配名并注明首个优先 |
 | 首个 Any 命中后参数不足，后面的 Exact 本可接受输入 | 报告 Any 所选节点的 Usage，不回退 |
 | 默认 Help 根含 Any 子节点，输入为空或仅 `--help` | 返回根 Help；不进入 Any，不调用业务 |
 | 默认 Help 根含 Any 子节点，输入 `-- other`、`--help other` 或 `-x` | 均为根 Usage，Any 不截获控制标记或未转义选项样式输入 |
@@ -487,17 +487,17 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 | `run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
 | 默认帮助节点的 `--`；`-- --help` | 前者显示本节点帮助；后者为多余字面参数 Usage |
 | bootstrap 根的 `-- run contract.input control.input` | 根 init 收到 repository = "run"；不进入 run 子命令 |
-| 显式 `name: "execute"` 绑定 run，输入 `execute repo` | 调用原 run 一次；帮助路径为 execute，原函数名不成为另一条路由 |
+| 显式 `name: CommandName.Exact { value: "execute" }` 绑定 run，输入 `execute repo` | 调用原 run 一次；帮助路径为 execute，原函数名不成为另一条路由 |
 | 一个空字符串参数、中文、含空格参数 | 不裁剪、不重新拆词、不改写 |
 | 非 Unicode 原始参数 | 解码诊断、退出 2；无业务调用 |
 | 自动装配单命令 main，零参数函数、一个参数函数 | 作为无子命令的根，不要求 main 名称；按签名解析后调用一次 |
 | 处理函数返回 Failure／Usage | 进程退出 1／2；平台不擅自重复调用或补报业务错误 |
 | 帮助或诊断流短写、永久失败、刷新失败 | 正确续写或退出 1；不切换流假报成功 |
 | 子树跨父节点复用；不同父节点下同名子命令 | 两条路径分别有效，帮助和调用不混淆父路径 |
-| 循环子树、动态树、裸函数或元组元素、匿名 handler、错误签名、未完成函数、缺失模块、未消解 Auto | 编译失败，无可运行生成物；遮蔽节点也须检查 |
-| 同一具名函数的节点省略 name 或显式 Auto | 生成相同 Exact 名称和 Binding；构造零调用，合法分派只调用该函数一次 |
-| 默认 Help 根省略 name 或显式 Auto | 两者均在编译期解析为 Any；空输入与 --help 显示相同根帮助 |
+| 循环子树、动态树、裸函数或元组元素、匿名 handler、错误签名、未完成函数、缺失模块、裸 Str 名称 | 编译失败，无可运行生成物；遮蔽节点也须检查 |
+| 同一具名函数的节点省略 name 或显式 Auto | 两者均保留 Auto，使用相同 Binding.name；构造零调用，合法分派只调用该函数一次 |
+| 默认 Help 根省略 name 或显式 Auto | 两者均保留 Auto 并跳过根名称比较；空输入与 --help 显示相同根帮助 |
 | 非根 Help 省略 name 或显式 Auto；复用 Help + Auto 根声明为子节点 | 编译诊断，不从父路径或 Args 猜名称，不隐式生成 Any；显式 Exact / Any 合法 |
-| 空白、控制字符、空串或以 - 开头的非根 Exact，包括 Auto 派生后的值 | 编译诊断，显式名称与自动名称使用同一检查 |
+| 空白、控制字符、空串或以 - 开头的非根 Exact.value 或 Auto 使用的 Binding.name | 编译诊断，显式名称与自动名称使用同一检查 |
 | 函数改名、参数改名或数量改变；保留显式命令名 | 缺省名称和参数帮助随声明更新；显式名称稳定，调用仍绑定同一函数 |
 | 从纯证明调用宿主操作；异常终止 | 前者静态拒绝；后者不产生成功或清理完成证据 |

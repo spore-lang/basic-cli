@@ -1,4 +1,4 @@
-# basic-cli 首版数据与完整函数 hole。
+# basic-cli 首版数据、名称比较与完整函数 hole。
 # Str / Int / Bool 为选定语言基线的内建数据；不另造宇宙、公设或空的宿主类型。
 # List 使用 Spore Spec 指定的标准库声明；[] 展开到同一类型，不在平台内复制定义。
 # 标准库装配和元素类型推断仍由 compile.assembly / validation.evidence 提供实现与验证。
@@ -43,7 +43,7 @@ pub type Channel {
 
 # Binding 是编译器生成的内部表示，不要求应用重复声明命令或参数结构。
 # compile.bindings 必须从同一已检查函数产生声明名、参数名和调用适配器。
-# name 保存函数声明名，供 Auto 在编译期派生 Exact；运行路径保留实际消费的名称，根帮助前缀使用 Args.program。
+# name 保存函数声明名，供 Auto 在名称比较和帮助中读取；运行路径保留实际消费的名称，根帮助前缀使用 Args.program。
 # invoke 只接受 prepare 已核对元数的值，并在调用时才进入业务函数。
 pub type Binding {
     pub field name: Str;
@@ -59,11 +59,11 @@ pub type Handler {
     }
 }
 
-# Any 在子命令位置匹配并消费一个普通输入元素；与 Exact 一同按列表顺序选择，必须有一个剩余元素。
+# Any 在子命令位置匹配一个普通输入元素；与 Exact / Auto 一同按列表顺序选择，由路由层消费匹配的元素。
 # --help / -- 及以 - 开头的未转义输入仍按既有控制规则处理；Any 不截获它们。
 # 根由 cli 直接指定，根的 Any 不消费 Args.values；选中子节点后，实际消费的词进入帮助与诊断路径。
-# 源 name: "run" 经命令声明适配成为 Exact；普通 Str 不因此获得通用隐式转换。
-# Auto 是缺省声明请求：编译期从业务函数声明名解析为 Exact，不参与运行时匹配。
+# 显式名称写 CommandName.Exact { value: "run" }；name 字段不接受裸 Str。
+# Auto 保留在命令值中，比较时使用已有 Binding.name，不反射普通函数值，也不调用业务。
 pub type CommandName {
     cases {
         case Exact { pub field value: Str; }
@@ -75,10 +75,9 @@ pub type CommandName {
 # 统一命令节点；自身动作与子命令可以同时存在，运行前须完成所有静态声明适配。
 # 源声明 Command { handler: f } 由 compile.bindings 先取得 f 的声明名并生成 Handler.Function。
 # 因此 f 不是直接具有 Handler 类型；这个表面适配仍待实现，不是普通函数值的隐式转换。
-# name 的常量默认值为 Auto，显式 Auto 与省略完全等价；适配时从 handler 派生 Exact 函数名。
-# Help 没有函数声明名：非根 Auto 拒绝；根 Auto 解析为 Any，因为根不参与名称匹配。
-# cli 指定的根不消费自身名称；显式 Any 或已有 Exact 都从节点正文开始，根帮助前缀仍取 Args.program。
-# 所有 Auto 必须在编译期消解，进入 cli / dispatch / prepare 的有效树只含 Exact / Any。
+# name 的常量默认值为 Auto，显式 Auto 与省略完全等价；编译期只生成绑定，不改写名称 case。
+# Help 没有函数声明名：非根 Auto 拒绝；根保留 Auto，因为根不参与名称匹配。
+# cli 指定的根不消费自身名称；三种 case 都从节点正文开始，根帮助前缀仍取 Args.program。
 # 三个字段的默认初值都是常量，不访问正在构造的实例或其他字段。
 # 所有异签名函数适配后均进入 List[Command]，普通列表仍保持同质。
 #
@@ -87,11 +86,42 @@ pub type CommandName {
 # ```spore
 # Command { name: CommandName.Auto {}, handler: run }
 # ```
-# Expect: 与省略 name 等价；编译期产生 Exact("run") 与该函数的 Binding，构造期间不调用 run。
+# Expect: 与省略 name 等价；name 保持 Auto，Binding.name 为 "run"，构造期间不调用 run。
 pub type Command {
     pub field name: CommandName = CommandName.Auto {};
     pub field handler: Handler = Handler.Help {};
     pub field subcommands: List[Command] = [];
+}
+
+# 只比较名称；路由层先处理 --help / -- 与未转义选项，再对直接子节点按顺序调用。
+# 不消费输入、不生成帮助、不调用业务；根不经过此比较。
+# Help 没有声明名，Auto / Help 比较为 false；有效的非根 Auto 在静态装配时已要求 Function。
+#
+# Examples
+# Given: command.name = CommandName.Exact { value: "execute" }，handler 绑定完整 run(repository: Str) -> Exit。
+# ```spore
+# (matches_name(command, "execute"), matches_name(command, "run"))
+# ```
+# Expect: 结果为 (true, false)；显式名称只影响路由，Binding.name 仍为 "run"，业务调用为零。
+#
+# Given: command.name = CommandName.Auto {}，handler 绑定同一完整 run 函数。
+# ```spore
+# (matches_name(command, "run"), matches_name(command, "execute"))
+# ```
+# Expect: 结果为 (true, false)；name 保持 Auto，读取 Binding.name，不调用 run。
+#
+# Given: command.name = CommandName.Any {}，handler 为 Help。
+# ```spore
+# (matches_name(command, "other"), matches_name(command, ""))
+# ```
+# Expect: 结果为 (true, true)；空字符串是一个完整输入元素；本函数不消费它，也不输出帮助。
+fn matches_name(command: Command, input: Str) -> Bool {
+    match (command.name, command.handler) {
+        (CommandName.Exact { value: let expected }, _) => input == expected,
+        (CommandName.Any {}, _) => true,
+        (CommandName.Auto {}, Handler.Function { binding: let binding }) => input == binding.name,
+        (CommandName.Auto {}, Handler.Help {}) => false
+    }
 }
 
 pub type Input {
@@ -136,11 +166,11 @@ pub fn read_args() -> Input {
 
 #
 # Examples
-# Given: root 是已生成的默认帮助根，唯一直接子节点 run 无子命令，绑定完整 run(repository: Str) -> Exit。
+# Given: root 是 name 为 Auto 的默认帮助根，唯一直接子节点 run 同样保留 Auto、无子命令，绑定完整 run(repository: Str) -> Exit。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: ["run", "my repo"] })
 # ```
-# Expect: 返回 Invoke，同一 run Binding 的 values 仅有 "my repo"；不调用 invoke，不写终端。
+# Expect: 返回 Invoke，同一 run Binding 的 values 仅有 "my repo"；根跳过名称比较，子节点按 Binding.name 匹配；Auto 均保持原值，不调用 invoke，不写终端。
 #
 # Given: 同一 root。
 # ```spore
@@ -293,21 +323,23 @@ pub fn read_args() -> Input {
 # Expect: 返回多余字面参数的 Usage；转义后的 --help 不再触发帮助。
 pub fn prepare(root: Command, args: Args) -> Decision {
     # hole: cli.prepare
-    # 输入：compile.bindings 生成的有效根 Command 和一次已解码 Args；树中已无 Auto，业务参数均为必填 Str。
+    # 输入：compile.bindings 生成的有效根 Command 和一次已解码 Args；name 保留 Exact / Any / Auto，业务参数均为必填 Str。
     # 产出：合法调用返回同一 Binding 与按声明顺序排列的原值；帮助返回 Help；输入不匹配返回 Usage。
     # 根：cli 已指定根节点，从 args.values 开始，不匹配或消费 root.name；根 Any 不消费一个业务输入。
-    # 根：已有 Exact 名称的 Command 也可作为根复用，名称仍不消费；args.program 只作为输出的调用前缀。
+    # 根：Exact / Any / Auto 都跳过 matches_name，包括无函数的 Auto 根；args.program 只作为输出的调用前缀。
     # 路由顺序一：当前剩余输入恰为 ["--help"] 时返回本节点 Help，不调用任何 handler。
     # 路由顺序二：当前剩余输入以 -- 开头时，移除一次标记，选定本节点自身动作，其余全部按字面值处理。
-    # 路由顺序三：有剩余输入时按 subcommands 原顺序寻找首个匹配者：Exact.value 精确相等，Any 匹配一个不以 - 开头的输入元素。
-    # 路由顺序三：选定后消费一个原始元素、记录其实际值为路径，并在子节点重复规则；Exact 不优先于排在前面的 Any。
+    # 路由顺序三：有剩余输入且首元素不以 - 开头时，按 subcommands 原顺序调用 matches_name，取首个返回 true 的节点。
+    # 路由顺序三：Exact 比较 value，Auto 比较 Binding.name，Any 接受该元素；没有比声明顺序更高的名称模式优先级。
+    # 路由顺序三：选定后消费一个原始元素、记录其实际值为路径，并在子节点重复规则。
     # 路由顺序四：无子节点命中或输入为空时，选定当前节点自身动作；之后不再寻找子命令。
-    # 提交：Exact 或 Any 命中即选定；不按参数元数试探，不合并子树，不因后续错误回退到兄弟节点或父动作。
+    # 提交：名称命中即选定；不按参数元数试探，不合并子树，不因后续错误回退到兄弟节点或父动作。
     # 自身动作：Handler.Function 按 Binding.parameters 核对元数；零参数可以调用，缺参或多参为 Usage。
     # 缺省动作：Handler.Help 只接受空参数（包括移除单独 -- 后为空）；返回与本节点 --help 相同的 Help。
     # 缺省动作：有剩余参数时返回当前节点的 Usage，不吞掉未知名称或多余字面参数；空子列表本身合法。
     # 帮助：显示当前自身动作的参数名、Str 和退出规则，以及按声明顺序列出的全部直接子命令与自身签名。
-    # 帮助：缺省动作标示为显示帮助；Any 子项明确显示为通配项。重叠匹配项保持原顺序并注明首个优先，不伪装成均可到达的路由。
+    # 帮助：Exact 子项显示 value，Auto 子项显示 Binding.name，Any 子项标示为通配项；缺省动作标示为显示帮助。
+    # 帮助：重叠匹配项保持原顺序并注明首个优先，不伪装成均可到达的路由。
     # 用法：保留 program 与实际消费的完整命令路径，Any 的已匹配词也须保留；不以 Binding.name 或 Any 的显示标记替换它。
     # 名称保真：Any 消费恰好一个元素，空字符串或含空白元素也不拆分；该词只进入路径，不自动增加处理函数的业务参数。
     # 字面值：-- 在开始自身参数解析前只识别一次；其后 --help、--、-x 都保留原值，不再生成帮助或路由。
