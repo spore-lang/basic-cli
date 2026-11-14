@@ -29,112 +29,136 @@
 进程执行、调度、预算和工作恢复不在本稿中扩展。现有 I/O 模块可作为
 后续实现参考，但旧 `foreign` / `uses` 语法不因此成为新版语言规则。
 
-默认值、类型转换、可选参数、短选项、环境变量输入、动态命令树和动态
-注册均不在首版。原生非 Unicode 路径也不在首版输入域内，必须明确
-拒绝而非有损解码。
+参数默认值、自定义 decoder、类型转换、可选参数、短选项、环境变量
+输入、动态命令树和动态注册均不在首版。裸函数列表、元组简写、链式
+注册与函数式组合留待后续。原生非 Unicode 路径也不在首版输入域内，
+必须明确拒绝而非有损解码。
 
 ## 命令树的接口提案
 
-应用 `main` 不要求 `pub`，也不接收 platform 类型参数。下面采用
-`cli`、`command`、`group` 作为本稿的**候选拼写**，供审阅；它们尚未
-成为已接受的语言规则或现有库 API。这里只修改 spec，不提供 CLI 原型。
+应用 `main` 不要求 `pub`，也不接收 platform 类型参数。本稿选定
+`Command`、`Cli`、`cli` 与 `.run()` 的声明表面；其中直接函数字段的
+编译期适配尚未成为 Spore 正式语言规则或已实现 API。这里只交付规约。
 处理函数必须由应用实际定义，函数体缺失不能由注册补齐：
 
-```text
+```spore
 fn main(args: Args) -> Exit {
     cli(args, [
-        command(init),
-        command(run),
-        command(status),
-        command(stop),
-    ])
+        Command { handler: init },
+        Command { handler: run },
+        Command { handler: status },
+        Command { handler: stop },
+    ]).run()
 }
 ```
 
-同一个列表内的节点处于同一层；`group` 的子列表下降一层。`command(f)`
-引用函数而不执行函数；叶子的名称、参数名与顺序来自同一份函数声明。
-列表顺序决定帮助中的展示顺序；叶子名保持函数声明名，不自动重命名或
-转换下划线。帮助生成签名与固定规则，不推断业务说明。
+`Command` 统一表示每一个节点，自身处理函数和子命令可以同时存在。
+同一列表内的节点处于同一层，`subcommands` 的列表下降一层。
 
-以下是独立的层级示意，不给 bootstrap 增加真实命令。假设 `list`、
-`recruit`、`train` 是另一个示例应用的完整处理函数；它们不是 bootstrap
-内部同名能力函数的 CLI 绑定：
+| 声明字段 | 含义与缺省规则 |
+| --- | --- |
+| `handler` | 当前节点自身的完整具名处理函数；省略时采用框架帮助动作 |
+| `name` | 子命令精确匹配的名称；默认取 handler 的声明名，可显式覆盖 |
+| `subcommands` | 按匹配优先级排列的直接子节点，默认 `[]` |
 
-```text
-static skills = group("skill", [command(list), command(train)]);
+没有处理函数的非根节点必须显式提供 `name`。非根名称必须非空、不含
+空白或控制字符，且不以 `-` 开头；函数名派生后也经过同一检查，不自动
+转换下划线或大小写。空子列表合法，同名兄弟节点合法且首个优先。
+名称相同不会合并子树，后面的同名节点也不能在前者失败时被尝试。
+
+`Cli` 是 `Command` 的根入口特化，继承这些命令字段，增加 `args: Args`
+和 `run() -> Exit`。根节点不匹配或消费自身名称，帮助前缀始终来自
+`Args.program`。根既无名称又无处理函数时，装配为内部空名称；它不是
+可供子命令匹配的名称。构造只建立描述，调用 `.run()` 才解析与分派。
+
+`cli(args, commands)` 构造自身动作为帮助、子列表为 commands 的 Cli。
+需要自定义根函数时直接构造 Cli；下例中的 args、commands 已由调用方
+提供，start 是完整处理函数：
+
+```spore
+Cli { args: args, handler: start, subcommands: commands }.run()
+```
+
+空输入按 start 的签名检查：零参数函数执行一次，有必填参数时返回
+用法错误；显式 `--help` 仍由框架处理。进入子命令不会执行 start。
+
+以下是独立的层级示意，不给 bootstrap 增加业务命令。假设完整的
+`train(employee: Str, skill: Str)`、`run(target: Str)` 和零参数
+`subcommand()` 均返回 Exit；这些名字不引用 bootstrap 的内部能力函数：
+
+```spore
+static skills = Command {
+    name: "skill",
+    subcommands: [Command { handler: train }],
+};
 
 fn main(args: Args) -> Exit {
     cli(args, [
-        command(status),
-        group("agent", [
-            command(list),
-            command(recruit),
-            skills,
-        ]),
-    ])
+        Command { name: "agent", subcommands: [skills] },
+        Command {
+            handler: run,
+            subcommands: [Command { handler: subcommand }],
+        },
+    ]).run()
 }
 ```
 
-它直接对应下列路径；二级、三级使用相同的递归规则：
+它直接对应以下结构；`run` 自身动作和更深的子命令共存：
 
 ```text
-bootstrap
-├── status
-└── agent
-    ├── list
-    ├── recruit
-    └── skill
-        ├── list
-        └── train
+bootstrap                 自身动作：help
+├── agent                 自身动作：help
+│   └── skill             自身动作：help
+│       └── train         自身动作：train(employee, skill)
+└── run                   自身动作：run(target)
+    └── subcommand        自身动作：subcommand()
 ```
 
-`skills` 保存完整具名子树，可在另一个父组引用；原子树不被修改，也不
-执行处理函数。相同叶子名可以出现在不同组中；同一父组下的叶子和组
-共用一个命名空间，重复名称在编译时拒绝。组名必须非空，不含空白或
-控制字符，且不以 `-` 开头。分组没有业务处理函数、位置参数或默认叶子。
+`skills` 保存完整具名子树，可在另一个父节点引用；原子树不被修改，
+也不执行处理函数。父路径在本次解析时累计，不能预先固化进共享子树。
 
 ### 同质列表与静态转换
 
-`init`、`run` 等函数的参数数量不同，原始函数不能直接组成同质的命令
-列表。本提案要求先由 `command(f)` 读取静态函数声明，生成完整
-`Binding` 并包装为 `Command.Leaf`；`group(name, children)` 产生
-`Command.Group`。二者结果都是 `Command`，所以 `[...]` 仍是普通的
-`List[Command]`，不需要异质列表或任意函数的隐式转换。
+显式 `Command` 统一了列表元素，但并未让不同签名的函数自动具有相同
+类型。源声明 `Command { handler: f }` 须先经 `compile.bindings` 读取
+同一份函数声明，产生参数名列表与完整 `Binding.invoke` 包装体，并把
+handler 转为 `Handler.Function { binding: ... }`。省略 handler 则使用
+`Handler.Help {}`；它由框架根据当前节点产生帮助，不是零参数业务回调。
 
-`command(f)` 是待实现的编译期适配表面，不声称普通多态函数可从运行时
-函数值恢复声明名、参数名或元数。`group` 及静态子树引用也须由编译期
-验证为有限、无环的结构；不会为了发现命令而执行应用代码。裸函数、
-动态选择的函数、循环引用、空组、重复兄弟节点或不合格签名均拒绝。
-这些义务落在 `compile.bindings` / `compile.assembly`，尚未实现。
+`operations.sp` 的 `Command` / `Handler` 定义描述完成适配后的表示。
+直接函数引用的源写法先完成适配，再检查这些字段的类型；不能声称 f
+本身属于 Handler，或普通函数值能恢复声明名与参数名。派生 name 也在
+此阶段完成，不让字段默认初值访问正在构造的实例或其他字段。
+显式 name 只覆盖路由名，Binding.name 仍保留原函数声明名。
+平台正文与生成节点中的已适配 Handler 值按普通字段规则检查，不重复
+包装，也不把 `cli` 构造中的 `Handler.Help {}` 当作业务函数引用。
 
-### 参考与取舍
-
-| 候选 | 层级可见性与代价 |
-| --- | --- |
-| 连续链式注册 | 需要先知道每次调用返回父节点还是子节点；不用于本稿的树形入口 |
-| 完整手写命令描述树 | 层级直接可见，但重复函数参数 schema 与调用适配器 |
-| 列表、具名分组与 `command(f)` | 嵌套表达层级，保留签名来源；代价是实现显式编译期适配 |
-
-本稿推荐第三种。[Citty 的递归 subCommands](https://github.com/unjs/citty#sub-commands)
-说明命令树可以直接由数据嵌套表达；[Typer 的子应用组合](https://typer.tiangolo.com/tutorial/subcommands/nested-subcommands/)
-提供可复用分组的参考。两者的 API 不是 Spore 的语言依据。
-[Commander 的 Commands](https://github.com/tj/commander.js#commands)
-则具体展示了链式返回值的差异：action-handler 用法返回新命令，独立
-可执行文件用法返回父对象；这正是本稿希望从入口结构中消除的歧义。
+适配后的节点都具有 Command 类型，列表仍是普通 `List[Command]`。
+静态子树须验证为有限、无环；不会为了发现命令而执行业务或注册回调。
+只接受完整具名函数声明，动态选择、匿名函数、裸函数元素、元组元素、
+循环引用和不合格签名均拒绝。同名节点和空子列表不属于拒绝条件。
+声明适配和 Cli 根装配仍分别属于 `compile.bindings` / `compile.assembly`
+的未完成义务。
 
 ## 入口装配与实际调用
 
 单命令应用直接提供带业务参数的 `main`，可有零个或多个必填 `Str`
-参数并返回 `Exit`；编译器为它生成 `Interface.Single` 和解析入口。
-多命令应用的 `main(args: Args) -> Exit` 直接接收已解码输入；候选
-`cli(args, commands)` 展开为
-`dispatch(Interface.Group { commands: commands }, args)`。
-Group main 只允许这一次入口调用；其树由列表、
-`command(f)`、`group` 与已验证的静态子树引用组成，不由循环、条件或
-运行时函数产生。不执行注册回调；业务调度放在选中的叶子函数内。
+参数并返回 `Exit`；编译器把它绑定为一个无子命令的根 Command，生成
+`Args -> Exit` 解析入口。接收 `Args` 的 `main(args: Args) -> Exit`
+直接构造 Cli 并调用一次 `.run()`；它不是供业务绑定的 Str 参数函数。
+两种入口都经 `dispatch(root: Command, args: Args)` 和
+`prepare(root: Command, args: Args)`，不再使用 Single / Group 两套表示。
+
+根由 `cli(args, commands)` 或显式 Cli 构造，静态子树由 Command、列表
+和已验证的静态引用组成，不由循环、条件或运行时函数生成。
+`cli` 的构造正文与 `Cli.run()` 的分派顺序写在 `platform.sp`；方法取值
+只绑定接收者，调用时才执行正文。Cli 作为 Command 使用时保留原节点
+字段；Args 只由根持有，子节点不重新读取 argv。业务调度放在最终选定的
+处理函数内，不在父节点增加初始化钩子。
 
 运行关系固定为：宿主启动 → `main_for_host` 读取输入 → 已装配入口 →
-`prepare` → 帮助／用法诊断或一次业务调用 → `exit_code` → OS 进程状态。
+构造 Cli 并调用 `.run()`（单命令为生成的根分派）→ `prepare` →
+帮助／用法诊断或一次业务调用 → `exit_code` → OS 进程状态。
 宏观分支已写在 `platform.sp`；业务返回的 `Exit` 不被解析层重新解释。
 正常返回只说明退出状态，不自动产生任务完成、权限或预算证明。
 
@@ -164,16 +188,40 @@ static empty_args = Args { program: "bootstrap", values: [] };
 
 1. `read_args` 读取一次宿主 argv，完成无损解码，返回 `Input.Ready(args)`、
    `Input.Usage` 或 `Input.Failure`；`Ready` 仅表示输入读取与编码有效。
-2. `prepare` 将同一个 `Args` 与编译器生成的 `Interface` 结合。Group
-   根入口收到空 `values` 时直接产生根帮助，否则逐层消费命令路径；
-   Single 不消费命令名，到叶子才检查位置参数。
-   任一已选节点剩余输入恰为 `["--help"]` 时显示该节点帮助。
+2. `prepare` 将同一个 `Args` 与已生成的根 Command 结合，依下方规则
+   消费命令路径并检查最终节点的自身参数；根名称从不消费。
 3. `Decision.Invoke` 携带选定的 Binding 及剩余业务参数。`Args.values`
    中的整条命令路径与分隔标记不会进入 `Binding.invoke` 的 values。
 4. `dispatch` 才调用业务函数。例如 `run("my repo")` 只收到 repository；
    目录是否存在、权限和恢复条件继续由业务契约检查。
 
-以单个必填 Str 参数的 Group 命令 `run` 为例：
+### 有序路由与自身动作
+
+每层依次采用以下规则。这是沿已匹配路径的深度优先，不遍历未命中的
+子树，也不在参数失败后搜索其他候选：
+
+1. 剩余输入恰为 `["--help"]` 时，产生当前节点的 Help。
+2. 剩余输入以 `--` 开头时，移除一次标记，停止路由与选项识别，将
+   后续原值交给当前节点自身动作。
+3. 否则按 subcommands 顺序寻找首个与下一参数精确同名的节点；命中
+   即选定，消费名称并在该节点重复上述规则。
+4. 输入为空或没有子节点命中时，选定当前节点自身动作；开始检查位置
+   参数后，不再寻找子命令。
+
+`Handler.Function` 按原函数签名核对参数。`Handler.Help` 只接受空参数，
+返回与本节点 `--help` 相同的文本；未知名称或多余参数返回 Usage。
+单独 `--` 移除后也是空参数：零参数函数可执行，缺省动作显示帮助，
+有必填参数的函数仍报缺参。转义后再出现 `--` 也只是原值。
+未转义时以 `-` 开头的业务参数、混用的 `--help`、中途出现的 `--`、
+缺参和多参均为 Usage。子命令路径必须连续地出现在业务参数之前。
+
+名称命中后不回退到父动作或后面的同名节点，也不合并同名子树。
+进入子命令不执行父函数；没有子命令命中时，一个接受 Str 的自身函数
+可能接收拼错的命令名，此时该字符串是否合法由业务判断。
+新增同名子命令会优先于原有的自身参数解释；需要稳定地传入这种字符串
+时使用 `--`，shell 引号不能消除这种歧义。
+
+以默认帮助根下的单个必填 Str 命令 `run` 为例：
 
 | Args.values 的内容 | prepare 的结果 |
 | --- | --- |
@@ -182,28 +230,32 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | `["run", "--help"]` | Help；不调用 run |
 | `["run", "--", "--help"]` | Invoke(run, `["--help"]`) |
 | `["run", "repo", "--help"]` | Usage；不调用 run |
-| `[]` 或 `["--help"]` | 相同的根 Help；不默认选择命令、不调用业务 |
+| `[]` 或 `["--help"]` | 相同的根 Help；不调用业务 |
 | `["missing", "repo"]` | Usage；未知命令 |
 
 因此，`bootstrap` 与 `bootstrap --help` 输出完全相同的根帮助到 stdout，
-stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空输入显示帮助
-只适用于 Group 根入口；Single 和已选叶子继续按函数签名检查参数。
+stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。这是根省略
+handler 的结果；设置根函数后，空输入由其签名决定，不能继续强制帮助。
 
-对上方示意树，若 `train(employee: Str, skill: Str) -> Exit`：
+对上方 agent / run 示意树：
 
 | Args.values 的内容 | prepare 的结果 |
 | --- | --- |
 | `["agent", "skill", "train", "reviewer", "rust"]` | Invoke(train, `["reviewer", "rust"]`) |
 | `["agent", "skill", "--help"]` | Help；列该组直接子命令与完整调用前缀 |
-| `["agent", "skill"]` | Usage；在该组缺少子命令 |
+| `["agent", "skill"]` | 与该节点 `--help` 相同的 Help；未设置自身函数 |
 | `["agent", "missing"]` | Usage；在 agent 组遇到未知名称 |
-| `["agent", "--", "skill"]` | Usage；`--` 只在选定叶子后的参数段生效 |
+| `["agent", "--", "skill"]` | Usage；agent 的缺省 Help 不接受字面参数 skill |
 | `["agent", "skill", "train", "--", "--help", "rust"]` | Invoke(train, `["--help", "rust"]`) |
+| `["run", "subcommand"]` | Invoke(subcommand, `[]`)；不执行 run |
+| `["run", "--", "subcommand"]` | Invoke(run, `["subcommand"]`) |
+| `["run", "some_arg", "subcommand"]` | run 的多参 Usage；不会中途转入 subcommand |
 
-分组帮助按列表顺序显示直接子组及叶子签名，叶子帮助显示其参数与退出
-规则；两者均使用完整命令路径。未进入 `--` 字面值模式时，`--help`
-不能与其他参数混用；错误定位到当前组或叶子，不回退到兄弟节点、父
-处理函数或默认命令。
+每个节点的帮助包含自身动作签名和退出规则，以及按声明顺序排列的
+全部直接子命令及各自的自身签名；缺省动作标示为显示帮助。同名子项
+保持原顺序并注明首个优先，不显示成另一条可选择的路由。帮助使用完整
+调用路径和 Command.name，不把原函数声明名当作另一条调用路径。
+错误定位到最终选定的节点；帮助与错误只产生数据，不能执行业务。
 
 标准库 `List` 提供有限、有序序列，其语言定义不规定宿主 ABI 的内存
 布局。`Args` 没有解析游标、已选命令、默认参数或环境变量；增加新的
@@ -241,7 +293,7 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空
 | 标识 | 位置 | 输入、产出及完成依据 |
 | --- | --- | --- |
 | `host.arguments` | `operations.sp` / `read_args` | 原始 argv → `Input`；完整约束、错误和验收写在函数体内 |
-| `cli.prepare` | `operations.sp` / `prepare` | 已绑定 Interface、Args → `Decision`；完整约束、错误和验收写在函数体内 |
+| `cli.prepare` | `operations.sp` / `prepare` | 已绑定根 Command、Args → `Decision`；完整约束、错误和验收写在函数体内 |
 | `host.write` | `operations.sp` / `write_text` | 指定流与文本 → 写入并刷新结果；完整约束、错误和验收写在函数体内 |
 | `compile.bindings` | 编译期提供义务 | 已检查的函数声明与静态命令树 → 完整 Command / Binding；要求见下文 |
 | `compile.assembly` | 编译与链接义务 | 选定 platform、应用及 spec → 固定宿主入口；要求见下文 |
@@ -249,37 +301,51 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空
 | `host.lifecycle` | OS 接入义务 | 宿主回调、流和进程 → 实际调用与退出行为；要求见下文 |
 | `validation.evidence` | 验证义务 | 上述实现与固定输入 → 可复核的语法、类型及进程观察；要求见下文 |
 
-**compile.bindings**：从 `command(f)` 取得同一版本、已解析并检查的
-函数声明名、参数顺序、参数类型和返回类型，生成参数名列表及
-`Binding.invoke` 的完整包装体，再构造 `Command.Leaf`。
-包装体把参数原样交给原函数，只在 Invoke 分支调用时执行；不得在注册、
-生成帮助或部分解析时调用业务。只接受非泛型、参数均为必填 `Str`、
-返回 `Exit` 的处理函数；有默认值、依赖参数、不可见符号或未完成函数体
-时产生编译诊断，不生成可运行产物。处理所有静态子树引用，检查无环、
-非空、组名有效以及每一父组下的名称唯一，叶子与组之间也不能重名。
-引用的子树按所在路径分别绑定；跨父组复用可接受，重复兄弟节点拒绝。
-验证零／一／三个参数的包装，以及函数改名、签名改变后帮助和调用同步
-变化，并验证异签名叶子均得到 `Command`，裸函数不会隐式成为节点。
-参数元数与来源保真目前是生成器的验证义务，尚无 MLTT 证明；
-普通函数值的运行时类型不被假定含有参数名。
+**compile.bindings**：只在解析到本平台 Command / Cli 的静态声明构造处
+适配 `handler: f`，不按同名拼写劫持用户自己的类型，也不为普通函数值
+增加任意隐式转换。从同一版本、已解析并检查的完整具名函数声明取得
+名称、参数顺序、参数类型和返回类型，生成参数名列表与完整
+`Binding.invoke` 包装体，再装入 `Handler.Function`。省略 handler 时
+使用 `Handler.Help`；省略 subcommands 时使用空的标准 `List[Command]`。
+显式 name 须为静态可确定的 Str，优先于函数声明名；未提供则取函数名。
+无函数的非根节点缺少名称时拒绝，
+根也无名称时填入内部空串。派生名称在声明适配阶段完成，不用跨字段
+默认初值实现。所有字段先完成适配，再按平台表示检查类型。
+
+只接受非泛型、参数均为必填 `Str`、返回 `Exit` 的函数；有参数默认值、
+依赖参数、匿名或动态选择的函数、不可见符号、未完成函数体时产生编译
+诊断，不生成可运行产物。包装体把参数原样交给原函数，只在 Invoke
+分支调用时执行；构造、帮助和解析期间不调用业务。
+
+遍历所有静态子树引用，检查有限、无环与非根名称有效。空子列表合法，
+重复兄弟名称保留原顺序；即使节点被前面的同名节点遮蔽，也必须完整
+检查其声明。跨父节点复用不固化父路径，不合并或排序子树。
+验证零／一／三个参数的包装、异签名节点的同质列表、显式改名及缺省
+命名、函数改名和签名变化后的帮助与调用一致性。源构造到 Handler 的
+适配、参数元数与来源保真仍是生成器验证义务，尚无 MLTT 证明；普通
+函数值的运行时类型不被假定含有参数名。
 
 **compile.assembly**：输入明确版本的本 spec、应用和所选 platform，
 同时供应 Spore Spec 指定的标准库 List，固定它及 Empty／Item 的声明
 身份；平台和应用必须使用同一个类型。完成列表字面量展开与元素类型
 推断，不能按局部同名类型替换，也不能用缺失的标准库绑定继续构建。
-解析文件间名字，检查 Single／Group 模式及 Group main 的静态树限制，
-连接原函数、生成包装、`dispatch` 与 `main_for_host`。单命令生成
-`Args -> Exit` 入口；多命令
-使用应用的 `main(args)`，只对明确注册的函数生成绑定。固定宿主 ABI
-不能随业务参数数量或命令深度变化。`cli` / `command` / `group` 候选表面
-及静态子树引用的具体展开实现、
-模块导入拼写、manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配
-必须阻止构建，不回退到旧的 `main() -> ()`。验收须包含两个独立应用、
-私有 main、跨文件可见性拒绝，以及错误入口签名的编译失败。
+解析文件间名字，按 main 的签名选择装配：业务 Str 参数入口生成一个
+绑定 main、没有子命令的根及 `Args -> Exit` 适配器；`main(args: Args)`
+入口检查静态树并构造 Cli、调用一次 `.run()`。只对明确登记的处理函数
+生成绑定，接通原函数、包装、Cli.run、`dispatch` 与 `main_for_host`。
+核验 Cli 的实例字段继承与 Command 父视图，方法选择不提前执行正文，
+根不匹配自身名称；构造和分派使用同一 Args，不重新读取宿主输入。
+固定宿主 ABI 不能随参数数量或命令深度变化。
 
-**runtime.effects**：`entry`、`Binding.invoke`、`read_args`、`write_text`
-及其调用链属于运行层，可能执行 I/O、失败或不终止。它们在本文的普通
-函数签名仅描述调用边界，不意味着能够作为纯 MLTT 证明项归约。实现须
+Command / Cli 声明适配与静态子树引用的具体展开、模块导入拼写、
+manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止构建，
+不回退到旧的 `main() -> ()`。验收须包含两个独立应用、私有 main、
+跨文件可见性拒绝、错误入口签名，以及构造阶段零业务调用。
+
+**runtime.effects**：`entry`、`Cli.run`、`dispatch`、`Binding.invoke`、
+`read_args`、`write_text` 及其调用链属于运行层，可能执行 I/O、失败或
+不终止。`cli` 构造与 `prepare` 只处理数据；声明适配不执行业务。本文的
+运行函数签名仅描述调用边界，不意味着能够作为纯 MLTT 证明项归约。实现须
 明确区分纯数据计算与运行代码，并保留调用链的效果；缺少该区分时不能
 把整个文件标成已通过 MLTT 检查。验收要拒绝在类型形成、定义相等检查
 或证明构造中执行宿主动作，同时允许运行层正常调用。纯 `exit_code`
@@ -297,9 +363,12 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空
 分别报告语法识别、类型／效果检查和行为观察。旧 host 测试、旧编译器
 成功或适配文法识别均不能关闭新版义务。未解 `_`、未供给的包装体或
 未完成的效果隔离都必须保持 pending，不能当作通过或新增公设。
-命令树验收包含二级与三级路径、分组复用、同名但不同父组的叶子、混合
-元数的成功适配、各层帮助与缺失命令、错误层级、路径完整消费，以及
-空组、循环子树和同组重名的编译诊断；注册、帮助、错误均不能产生业务调用。
+命令树验收包含二级与三级路径、子树复用、各层缺省帮助、自定义根与
+父节点动作、空子列表、混合元数、同名兄弟首个优先、错误不回退、
+`--` 强制自身动作，以及开始参数解析后不再路由。无效名称、循环子树、
+动态声明和不合格函数必须被拒绝；构造、帮助、解析错误均无业务调用。
+分别记录“期望绑定”与实际业务调用，不能只凭 Exit.Success 判断选对了
+函数；每次合法分派最多调用一个处理函数一次，父函数不作为钩子执行。
 列表验收包含有元素与空 Args、从字段约束得到 `List[Str]`、输入顺序和
 空字符串保真，以及同名自定义 List 不能替代标准类型的拒绝案例。
 还须逐例执行函数 Examples：实现提取器、提供 Given 所需的完整值和
@@ -308,26 +377,40 @@ stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空
 
 ## 首版验收矩阵
 
-平级案例以四个已实现处理函数为输入：`init` 接受三个 Str，`run`、
-`status`、`stop` 各接受一个 Str，全部返回 Exit。多级案例另用上方示意树
-及其完整处理函数。测试用可观察业务记录判断是否进入处理函数，不能
+平级案例以四个完整处理函数及默认帮助根为输入：`init` 接受三个 Str，
+`run`、`status`、`stop` 各接受一个 Str，全部返回 Exit，四个节点均无
+子命令。多级案例另用上方示意树及其完整处理函数。
+测试用可观察业务记录判断是否进入处理函数，不能
 只检查解析器自报的成功。
 
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
 | `init repo contract control`；`run repo`；`status repo`；`stop repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
 | `bootstrap`；`bootstrap --help` | stdout 根帮助完全相同、stderr 为空、退出 0；无业务调用 |
-| `run --help` | stdout 叶子帮助、退出 0；无业务调用 |
-| 示意树的 `agent list`；`agent skill train reviewer rust` | 二级／三级路径选中唯一叶子，只传业务参数，调用一次 |
+| 只构造 Command / Cli / cli，或只选择 app.run 方法值 | 保持数据和声明顺序；不解析 argv，不输出，不调用业务 |
+| `run --help` | stdout 本节点帮助，包含自身参数和直接子命令，退出 0；无业务调用 |
+| 示意树的 `agent skill train reviewer rust` | 三级路径选中 train，只传业务参数，调用一次 |
 | `agent --help`；`agent skill --help`；`agent skill train --help` | 各层帮助与完整路径，输出成功退出 0，无业务调用 |
-| `agent skill`；`agent missing`；`agent -- skill` | 在正确层级诊断，输出成功退出 2，无业务调用 |
-| 未知命令、`run` 缺参、多参、`run repo --help` | stderr 用法诊断、退出 2；无业务调用 |
+| `agent`；`agent skill`；已命名但无 handler 和子命令的节点 | 与该节点单独 `--help` 相同的帮助，输出成功退出 0，无业务调用 |
+| `agent missing`；`agent -- skill`；默认帮助根的未知命令 | 在正确层级诊断，输出成功退出 2，无业务调用 |
+| 自定义 start() 根的空输入；同一根的 `--help` | 前者调用 start 一次并传播 Exit；后者显示根帮助，不调用 start |
+| 自定义根接受一个 Str：空输入；`repo` | 前者缺参 Usage；后者直接传入 repo，不要求输入根名称 |
+| 示例 run 的 `run subcommand`；`run -- subcommand` | 前者只调用子命令；后者只调用 run，参数为字面 subcommand |
+| `run some_arg subcommand` | run 的多参 Usage，不能中途转入 subcommand |
+| 子命令缺参，其名称本可作为父函数的合法 Str 参数 | 只报告子命令缺参，不回退、不调用父函数 |
+| 两个无子命令的 run 节点都能接受输入；首个缺参但后者可接受 | 两者都可接受时只调用首个一次；首个缺参时报告它的 Usage，不尝试后者 |
+| 同名节点分别拥有不同子树，输入仅匹配后者子树 | 仍选首个节点，并依其自身动作成功或报错；不合并或回退 |
+| `run` 缺参、多参、`run repo --help`、`run repo --` | stderr 用法诊断、退出 2；无业务调用 |
 | `run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
+| 默认帮助节点的 `--`；`-- --help` | 前者显示本节点帮助；后者为多余字面参数 Usage |
+| 显式 `name: "execute"` 绑定 run，输入 `execute repo` | 调用原 run 一次；帮助路径为 execute，原函数名不成为另一条路由 |
 | 一个空字符串参数、中文、含空格参数 | 不裁剪、不重新拆词、不改写 |
 | 非 Unicode 原始参数 | 解码诊断、退出 2；无业务调用 |
-| Single 的零参数函数、一个参数函数 | 不要求子命令名；按各自签名解析后调用一次 |
+| 自动装配单命令 main，零参数函数、一个参数函数 | 作为无子命令的根，不要求 main 名称；按签名解析后调用一次 |
 | 处理函数返回 Failure／Usage | 进程退出 1／2；平台不擅自重复调用或补报业务错误 |
 | 帮助或诊断流短写、永久失败、刷新失败 | 正确续写或退出 1；不切换流假报成功 |
-| 子树跨组复用；不同组内同名叶子 | 两条路径分别有效，帮助和调用不混淆父路径 |
-| 同组重名、循环子树、空组、动态树、裸函数、错误签名、未完成函数或缺失模块 | 编译失败，无可运行生成物 |
+| 子树跨父节点复用；不同父节点下同名子命令 | 两条路径分别有效，帮助和调用不混淆父路径 |
+| 循环子树、动态树、裸函数或元组元素、匿名 handler、错误签名、未完成函数、缺失模块 | 编译失败，无可运行生成物；遮蔽节点也须检查 |
+| 无 handler 的非根节点未命名；空白、控制字符、空串或以 - 开头的非根名称 | 编译诊断，不能以字段默认值绕过 |
+| 函数改名、参数改名或数量改变；保留显式命令名 | 缺省名称和参数帮助随声明更新；显式名称稳定，调用仍绑定同一函数 |
 | 从纯证明调用宿主操作；异常终止 | 前者静态拒绝；后者不产生成功或清理完成证据 |
