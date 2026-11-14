@@ -1,13 +1,7 @@
 # basic-cli 首版数据与完整函数 hole。
 # Str / Int / Bool 为选定语言基线的内建数据；不另造宇宙、公设或空的宿主类型。
-# List 的定义仅描述有限输入与注册集合；不把运行层回调混入纯 MLTT 求值。
-
-pub type List[A: Type] {
-    cases {
-        case Empty;
-        case Item { pub field value: A; pub field rest: List[A]; }
-    }
-}
+# List 使用 Spore Spec 指定的标准库声明；[] 展开到同一类型，不在平台内复制定义。
+# 标准库装配和元素类型推断仍由 compile.assembly / validation.evidence 提供实现与验证。
 
 # 一次调用的已解码输入快照；仍未选择命令、检查元数或处理 --help / --。
 # Args 只携带输入数据；命令定义、参数 schema 与业务权限都不由它提供。
@@ -16,13 +10,15 @@ pub type List[A: Type] {
 # ```spore
 # Args {
 #     program: "bootstrap",
-#     values: List[Str].Item {
-#         value: "run",
-#         rest: List[Str].Item { value: "my repo", rest: List[Str].Empty {} }
-#     }
+#     values: ["run", "my repo"]
 # }
 # ```
 # Expect: values 中只有两个元素；"my repo" 保持为一个参数。此构造表达式本身不读取进程输入。
+#
+# ```spore
+# Args { program: "bootstrap", values: [] }
+# ```
+# Expect: values 的类型由字段约束确定为 List[Str]，内容为空；尚未选择命令或检查命令是否缺失。
 pub type Args {
     # program 只用于展示，不能作为可信路径或权限依据。
     pub field program: Str;
@@ -103,23 +99,29 @@ pub fn read_args() -> Input {
 
 #
 # Examples
-# Given: interface 是从完整 run(repository: Str) -> Exit 生成的 Group；args.values 为 ["run", "my repo"]，program 为 "bootstrap"。
+# Given: interface 是从完整 run(repository: Str) -> Exit 生成的 Group。
 # ```spore
-# prepare(interface, args)
+# prepare(interface, Args { program: "bootstrap", values: ["run", "my repo"] })
 # ```
 # Expect: 返回 Invoke，同一 run Binding 的 values 仅有 "my repo"；不调用 invoke，不写终端。
 #
-# Given: 同一 Group 中 run 接受一个 Str；args.values 为 ["run", "--", "--help"]。
+# Given: 同一 Group 中 run 接受一个 Str。
 # ```spore
-# prepare(interface, args)
+# prepare(interface, Args { program: "bootstrap", values: ["run", "--", "--help"] })
 # ```
 # Expect: 返回 Invoke，业务 values 仅有字面字符串 "--help"；不产生 Help。
 #
-# Given: 同一 Group 中 run 接受一个 Str；args.values 为 ["run", "repo", "--help"]。
+# Given: 同一 Group 中 run 接受一个 Str。
 # ```spore
-# prepare(interface, args)
+# prepare(interface, Args { program: "bootstrap", values: ["run", "repo", "--help"] })
 # ```
 # Expect: 返回 Usage；不忽略多余参数、不调用 run，也不写终端。
+#
+# Given: 同一 Group 中 run 接受一个 Str。
+# ```spore
+# prepare(interface, Args { program: "bootstrap", values: [] })
+# ```
+# Expect: 返回 Usage，说明缺少命令；不调用 run，不写终端。
 pub fn prepare(interface: Interface, args: Args) -> Decision {
     # hole: cli.prepare
     # 输入：compile.bindings 生成的有效 Interface 和一次已解码 Args；所有参数均为必填 Str。

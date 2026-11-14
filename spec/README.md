@@ -19,6 +19,11 @@
 `Universe` / Path 写法覆盖本稿的 MLTT 基线。通用导入、效果与入口生成
 尚未确定或实现，下方逐项保留义务。
 
+列表采用 Spore Spec 的 `G-list-literals`、`S-list-literals` 与
+`D-list-literals`：`[]` / `[a, b]` 构造标准库固定的 `List`，元素类型由
+期望类型与元素约束确定。平台引用这个声明，不另建同名类型；标准库
+供应与编译器展开、推断仍由下方装配和验证义务负责。
+
 首版支持单命令和一个平级命令组，参数全部是必填 `Str` 位置参数，
 命令正常返回 `Exit`。只增加启动、参数与终端输出契约；文件、网络、
 进程执行、调度、预算和工作恢复不在本稿中扩展。现有 I/O 模块可作为
@@ -73,8 +78,16 @@ fn main(args: Args) -> Exit {
 `program` 为 `"bootstrap"`，`values` 为两个字符串 `"run"` 和
 `"my repo"`。用于 shell 分组的引号不属于 argv 内容；参数中实际存在的
 引号仍原样保留。`Args` 不重新拆词、展开变量、通配符或文件引用。
-这里的列表写法用于说明数据；实际 Spore 构造使用
-`List.Item` / `List.Empty`，见 `operations.sp` 中 `Args` 的例子。
+示例直接使用列表字面量；例如：
+
+```spore
+static command_args = Args { program: "bootstrap", values: ["run", "my repo"] };
+static empty_args = Args { program: "bootstrap", values: [] };
+```
+
+两例的 `values` 都由字段类型约束为 `List[Str]`。字面量展开为标准库
+`List.Item` / `List.Empty`，空列表也保留这一元素类型；构造 Args 本身
+不读取进程输入或解析命令。
 
 处理依次经过四个边界：
 
@@ -98,7 +111,7 @@ fn main(args: Args) -> Exit {
 | `["run", "repo", "--help"]` | Usage；不调用 run |
 | `[]` 或 `["missing", "repo"]` | Usage；不默认选择某个命令 |
 
-`List` 在本稿中提供有限、有序序列的最小定义，不规定宿主 ABI 的内存
+标准库 `List` 提供有限、有序序列，其语言定义不规定宿主 ABI 的内存
 布局。`Args` 没有解析游标、已选命令、默认参数或环境变量；增加新的
 业务参数只修改处理函数声明及其绑定，不修改 `Args` 的结构。
 已有 `Args` 可直接供解析示例使用，无须读取真实进程输入。
@@ -108,8 +121,8 @@ fn main(args: Args) -> Exit {
 每个函数的前置注释包含 `Examples`，使用 Markdown 的 `spore` 代码块，
 以 `Given:` 说明输入和测试环境，以 `Expect:` 写出结果及可观察行为。
 代码块使用真实函数签名；Given 中的命名值是待提供的测试数据，不能
-假定它们是现有全局变量或新增的测试 API。未声明已有支持的断言、
-列表简写、fixture 构造器和执行命令不会混入示例代码。
+假定它们是现有全局变量或新增的测试 API。列表字面量遵循上述 Spec
+规则；未声明的断言 API、fixture 构造器和执行命令不会混入示例代码。
 
 当前所有 Examples 都是 **pending**。代码出现、语法识别、现有 CI 或
 `no_run` 式的仅编译结果都不等于示例已执行通过。后续由
@@ -153,6 +166,9 @@ fn main(args: Args) -> Exit {
 普通函数值的运行时类型不被假定含有参数名。
 
 **compile.assembly**：输入明确版本的本 spec、应用和所选 platform，
+同时供应 Spore Spec 指定的标准库 List，固定它及 Empty／Item 的声明
+身份；平台和应用必须使用同一个类型。完成列表字面量展开与元素类型
+推断，不能按局部同名类型替换，也不能用缺失的标准库绑定继续构建。
 解析文件间名字，检查 Single／Group 模式及 Group main 的静态链限制，
 连接原函数、生成包装、`dispatch` 与 `main_for_host`。单命令生成
 `Args -> Exit` 入口；多命令
@@ -182,6 +198,8 @@ fn main(args: Args) -> Exit {
 分别报告语法识别、类型／效果检查和行为观察。旧 host 测试、旧编译器
 成功或适配文法识别均不能关闭新版义务。未解 `_`、未供给的包装体或
 未完成的效果隔离都必须保持 pending，不能当作通过或新增公设。
+列表验收包含有元素与空 Args、从字段约束得到 `List[Str]`、输入顺序和
+空字符串保真，以及同名自定义 List 不能替代标准类型的拒绝案例。
 还须逐例执行函数 Examples：实现提取器、提供 Given 所需的完整值和
 可控宿主环境，将 Expect 变成结果及行为断言，并保留实际执行证据；
 提取、测试数据、断言或运行支持缺失时不得把该例标为通过。

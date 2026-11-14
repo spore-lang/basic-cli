@@ -1,6 +1,6 @@
 # basic-cli 新版 platform：启动、命令调用与退出的宏观契约。
 # MLTT 基线；type / case、显式 let 模式，普通类型参数使用 Type。
-# operations.sp 定义下列数据与三个函数 hole；README.md 登记编译与运行集成 hole。
+# operations.sp 定义平台数据与三个函数 hole；List 来自标准库，README.md 登记编译与运行集成 hole。
 # 文件间名字装配仍待实现，不能把按阅读顺序出现当作已经导入。
 # 此处的运行层函数签名不授予在 MLTT 证明求值中执行 I/O 或任意回调的能力。
 
@@ -36,9 +36,9 @@ pub fn main_for_host(entry: Args -> Exit) -> Int {
 # 只有 Invoke 分支调用业务函数，调用一次并原样传播 Exit。
 #
 # Examples
-# Given: interface 为从完整函数 run(repository: Str) -> Exit 生成的 Group；该函数返回 Failure；args.values 为 ["run", "my repo"]。
+# Given: interface 为从完整函数 run(repository: Str) -> Exit 生成的 Group；该函数返回 Failure。
 # ```spore
-# dispatch(interface, args)
+# dispatch(interface, Args { program: "bootstrap", values: ["run", "my repo"] })
 # ```
 # Expect: 只调用该 run 一次，传入完整的 "my repo"；返回 Exit.Failure；平台不会再写帮助或业务错误诊断。
 pub fn dispatch(interface: Interface, args: Args) -> Exit {
