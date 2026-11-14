@@ -310,11 +310,11 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 返回根函数缺参的 Usage；不以缺省帮助掩盖自定义函数的参数要求。
 #
-# Given: root.name 为 Any，自身绑定完整 init(repository: Str, contract_file: Str, control_file: Str) -> Exit；没有子节点匹配 repo。
+# Given: root.name 为 Any，自身绑定完整 init() -> Exit，直接子列表为三个零参数 init / run / status。
 # ```spore
-# prepare(root, Args { program: "/tmp/renamed-bootstrap", values: ["repo", "contract.input", "control.input"] })
+# prepare(root, Args { program: "/tmp/renamed-bootstrap", values: [] })
 # ```
-# Expect: 返回根 init 的 Invoke，values 保持三个原值；Any 不消费 repo，也不要求启动名为 bootstrap 或 init。
+# Expect: 返回根 init 的 Invoke，values 为空；不要求启动名为 bootstrap 或 init；prepare 本身不打开交互或创建全局目录。
 #
 # Given: root 的 handler 为 Help，subcommands 为空。
 # ```spore

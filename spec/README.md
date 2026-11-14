@@ -97,14 +97,21 @@ Any 必须有一个剩余元素，不在空输入时自动进入。它不截获 
 根的 name 无论是哪种 case 都保持原值；根不参与名称比较，无函数的帮助根
 也可以保留 Auto。它作为非根节点复用时仍须满足子节点的名称要求。
 
-上面的 bootstrap 根默认选择 init，同时保留显式 init 子命令。当前
-`init(repository: Str, contract_file: Str, control_file: Str)` 有三个必填
-参数，因此 `bootstrap repo contract.input control.input` 与
-`bootstrap init repo contract.input control.input` 都调用同一 init 一次。
-空输入仍报缺参；`--help` 显示根动作签名和三个子命令。进入 run 或 status
-子命令时不会先执行 init。参数名与子命令同名时用 `--` 强制根动作。
-bootstrap 的 run 在前台持续运行，由应用接管 Ctrl+C 并完成收尾；信号接入
-和持久恢复属于应用生命周期，本平台只分派处理函数并传播它正常返回的 Exit。
+上面的 bootstrap 根默认选择 init，同时保留显式 init 子命令。
+`init()`、`run()`、`status()` 均为零参数交互式处理函数；`bootstrap` 与
+`bootstrap init` 都只调用 init 一次。`--help` 显示根动作签名和三个子命令，
+不会打开业务对话。进入 run 或 status 子命令时不会先执行 init。
+这些应用命令不接受额外位置参数；目录和配置由进入处理函数后的业务交互取得，
+不增加平台的可选参数规则，也不手写第二套 argv 解析。
+
+应用的目录提示默认当前目录，从所选项目的 `bootstrap.toml` 读取配置；
+项目记录保存在项目内，用户目录的全局信息首次有效业务启动时创建，之后复用。
+run 每次显示“原种子重启／继续运行／新种子重启”并等待显式确认，回车选择
+继续运行；没有输入、取消、EOF 或无交互终端时不能自动开始。
+种子指随机数种子：续跑恢复已有随机状态，两种重启创建新轮次并重置随机流，
+分别保留种子或生成不同种子；同种子不保证模型输出相同。
+run 在前台持续运行，由应用接管 Ctrl+C 并完成收尾。业务交互、文件、随机源、
+轮次和信号接入属于应用效果与生命周期，本平台只分派并传播正常返回的 Exit。
 
 需要默认显示帮助时省略根 handler；下例中的 args、commands 是调用方
 提供的输入与静态子列表：
@@ -297,7 +304,7 @@ static empty_args = Args { program: "bootstrap", values: [] };
 
 对这个默认帮助夹具，空输入与 `--help` 输出完全相同的根帮助到 stdout，
 stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。实际 bootstrap
-入口已指定 init，空输入按它的三个必填参数报告缺参。
+入口已指定零参数 init，空输入会调用 init()，之后才进入应用交互。
 
 对上方 agent / run 示意树：
 
@@ -446,19 +453,21 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 
 ## 首版验收矩阵
 
-平级 bootstrap 案例以上文入口和三个完整处理函数为输入：根默认 init，
-`init` 接受三个 Str，
-`run`、`status` 各接受一个 Str，全部返回 Exit，三个节点均无
-子命令。默认帮助根与其他自定义根在对应行另行指定；多级案例使用
-上方 agent / run 示意树及其完整处理函数。
+平级 bootstrap 案例以上文入口和三个完整零参数处理函数为输入：根默认 init，
+`init`、`run`、`status` 全部返回 Exit，三个节点均无子命令。
+默认帮助根、带 Str 参数的测试夹具和其他自定义根在对应行另行指定；
+它们的示意 run 函数不是实际 bootstrap 的 run()。多级案例使用上方 agent / run 示意树。
 测试用可观察业务记录判断是否进入处理函数，不能
 只检查解析器自报的成功。
 
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
-| `init repo contract control`；`run repo`；`status repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
-| `bootstrap repo contract.input control.input`；显式 `bootstrap init repo contract.input control.input` | 两条路径都只调用同一 init 一次，三个参数保真；有效输入才初始化成功 |
-| `bootstrap`；`bootstrap --help` | 前者为根 init 缺参，退出 2；后者输出根动作与子命令帮助，退出 0；两者均无业务调用 |
+| `init`；`run`；`status` | 只调用对应零参数函数一次，业务交互由该函数负责，退出值原样传递 |
+| `bootstrap`；显式 `bootstrap init` | 两条路径都只调用同一 init() 一次，之后由应用确认项目并读取配置 |
+| `bootstrap --help`；`bootstrap init --help` | 输出对应零参数签名与子命令帮助，退出 0；不调用业务、不交互、不创建全局信息 |
+| `bootstrap repo contract.input control.input`；`init repo`；`run repo`；`status repo` | 多余位置参数 Usage，退出 2；不调用业务、不交互 |
+| bootstrap 的 `run`，应用菜单已显示但未确认 | 平台已调用 run() 一次；应用等待，不能因回车默认项而自动取得运行权 |
+| bootstrap 的 `run`，用户在应用菜单按回车 | 应用显式选择继续运行；选择与恢复由应用验证，平台不读取交互输入 |
 | 默认 Help 根的空输入与 `--help` | stdout 根帮助完全相同、stderr 为空、退出 0；无业务调用 |
 | 只构造 Command / Cli / cli，或只选择 app.run 方法值 | 保持数据和声明顺序；不解析 argv，不输出，不调用业务 |
 | 任意 Args.program，包括重命名或完整路径；根名为 Any | 根选择不受程序名影响，首个业务参数不被根名称消费；帮助前缀保留 program |
@@ -484,10 +493,10 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 | Any 节点含 status 子命令，输入 `project-1 status --help` | 完整帮助路径使用实际消费的 project-1，不使用 Any 或原函数名 |
 | Any 子节点无子命令、绑定零参数函数，输入为一个空字符串或含空白元素 | 消费该完整元素，只调用零参数函数一次；不拆词，不将名称作为业务参数 |
 | 同名节点分别拥有不同子树，输入仅匹配后者子树 | 仍选首个节点，并依其自身动作成功或报错；不合并或回退 |
-| `run` 缺参、多参、`run repo --help`、`run repo --` | stderr 用法诊断、退出 2；无业务调用 |
-| `run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
+| 接受一个 Str 的 run 夹具：缺参、多参、`run repo --help`、`run repo --` | stderr 用法诊断、退出 2；无业务调用 |
+| 接受一个 Str 的 run 夹具：`run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
 | 默认帮助节点的 `--`；`-- --help` | 前者显示本节点帮助；后者为多余字面参数 Usage |
-| bootstrap 根的 `-- run contract.input control.input` | 根 init 收到 repository = "run"；不进入 run 子命令 |
+| bootstrap 根的 `--`；`-- run`；实际零参数 run 的 `run -- --help` | 第一项调用 init()；后两项为多余字面参数 Usage，不交互 |
 | 显式 `name: CommandName.Exact { value: "execute" }` 绑定 run，输入 `execute repo` | 调用原 run 一次；帮助路径为 execute，原函数名不成为另一条路由 |
 | 一个空字符串参数、中文、含空格参数 | 不裁剪、不重新拆词、不改写 |
 | 非 Unicode 原始参数 | 解码诊断、退出 2；无业务调用 |
