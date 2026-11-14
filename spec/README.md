@@ -50,7 +50,6 @@ fn main(args: Args) -> Exit {
             Command { handler: init },
             Command { handler: run },
             Command { handler: status },
-            Command { handler: stop },
         ],
     }).run()
 }
@@ -102,8 +101,10 @@ Any 必须有一个剩余元素，不在空输入时自动进入。它不截获 
 `init(repository: Str, contract_file: Str, control_file: Str)` 有三个必填
 参数，因此 `bootstrap repo contract.input control.input` 与
 `bootstrap init repo contract.input control.input` 都调用同一 init 一次。
-空输入仍报缺参；`--help` 显示根动作签名和四个子命令。进入 run、status、
-stop 等子命令时不会先执行 init。参数名与子命令同名时用 `--` 强制根动作。
+空输入仍报缺参；`--help` 显示根动作签名和三个子命令。进入 run 或 status
+子命令时不会先执行 init。参数名与子命令同名时用 `--` 强制根动作。
+bootstrap 的 run 在前台持续运行，由应用接管 Ctrl+C 并完成收尾；信号接入
+和持久恢复属于应用生命周期，本平台只分派处理函数并传播它正常返回的 Exit。
 
 需要默认显示帮助时省略根 handler；下例中的 args、commands 是调用方
 提供的输入与静态子列表：
@@ -445,9 +446,9 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 
 ## 首版验收矩阵
 
-平级 bootstrap 案例以上文入口和四个完整处理函数为输入：根默认 init，
+平级 bootstrap 案例以上文入口和三个完整处理函数为输入：根默认 init，
 `init` 接受三个 Str，
-`run`、`status`、`stop` 各接受一个 Str，全部返回 Exit，四个节点均无
+`run`、`status` 各接受一个 Str，全部返回 Exit，三个节点均无
 子命令。默认帮助根与其他自定义根在对应行另行指定；多级案例使用
 上方 agent / run 示意树及其完整处理函数。
 测试用可观察业务记录判断是否进入处理函数，不能
@@ -455,7 +456,7 @@ manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配必须阻止
 
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
-| `init repo contract control`；`run repo`；`status repo`；`stop repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
+| `init repo contract control`；`run repo`；`status repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
 | `bootstrap repo contract.input control.input`；显式 `bootstrap init repo contract.input control.input` | 两条路径都只调用同一 init 一次，三个参数保真；有效输入才初始化成功 |
 | `bootstrap`；`bootstrap --help` | 前者为根 init 缺参，退出 2；后者输出根动作与子命令帮助，退出 0；两者均无业务调用 |
 | 默认 Help 根的空输入与 `--help` | stdout 根帮助完全相同、stderr 为空、退出 0；无业务调用 |
