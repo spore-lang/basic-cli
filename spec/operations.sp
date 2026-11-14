@@ -131,7 +131,13 @@ pub fn read_args() -> Input {
 # ```spore
 # prepare(interface, Args { program: "bootstrap", values: [] })
 # ```
-# Expect: 返回 Usage，说明缺少命令；不调用 run，不写终端。
+# Expect: 返回根 Help，与 values = ["--help"] 的帮助文本完全相同；不调用 run，不写终端。
+#
+# Given: 同一 Group 中 run 接受一个 Str。
+# ```spore
+# prepare(interface, Args { program: "bootstrap", values: ["--help"] })
+# ```
+# Expect: 返回根 Help，与空 values 的帮助文本完全相同；不默认选择命令，不调用 run，不写终端。
 #
 # Given: interface 的 agent 组含 skill 组，skill 下的完整 train(employee: Str, skill: Str) -> Exit 已生成绑定。
 # ```spore
@@ -155,7 +161,9 @@ pub fn prepare(interface: Interface, args: Args) -> Decision {
     # 输入：compile.bindings 生成的有效 Interface 和一次已解码 Args；所有参数均为必填 Str。
     # 产出：合法调用返回同一 Binding 与按声明顺序排列的原值；帮助返回 Help；输入不匹配返回 Usage。
     # 选择：Single 直接选择其绑定；Group 每层消费一个精确匹配的名称，进入子组或选中 Leaf，不按元数猜路径。
-    # 选择：分组处空输入、未知名称或 -- 均为 Usage；找到叶子后不再把剩余参数当作子命令。
+    # 选择：子组处空输入、任一组的未知名称或 -- 均为 Usage；找到叶子后不再把剩余参数当作子命令。
+    # 根帮助：Interface.Group 的原始 args.values 为空时，返回与 ["--help"] 完全相同的根 Help，不选择默认命令。
+    # 空参数：Single 或已选叶子仍按签名核对参数；零参数函数可以调用，缺少必填参数仍为 Usage。
     # 帮助：在根、已选分组或叶子处剩余输入恰为 ["--help"] 时返回该节点的 Help，不继续解析其他节点。
     # 帮助：分组按声明顺序列出直接子组和叶子签名；叶子列参数名、Str 和退出码，均带完整调用前缀。
     # 用法：保留 program 与已经选择的命令路径；Single 不要求输入 main 这个名字，错误指出出错层级。

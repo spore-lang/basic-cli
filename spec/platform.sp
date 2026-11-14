@@ -9,11 +9,17 @@
 # read_args 只读一次输入；输入失败时不进入应用。只有正常返回路径产生此退出码。
 #
 # Examples
+# Given: 宿主 argv 为 ["bootstrap"]；entry 为已装配的静态命令组入口，输入和输出正常。
+# ```spore
+# main_for_host(entry)
+# ```
+# Expect: 返回 0；entry 收到 program = "bootstrap"、values = [] 的 Args；stdout 为根帮助、stderr 为空，业务处理函数调用次数为零。
+#
 # Given: 宿主 argv 为 ["bootstrap", "--help"]；entry 为已装配的静态命令组入口，输入和输出正常。
 # ```spore
 # main_for_host(entry)
 # ```
-# Expect: 返回 0；entry 收到 program = "bootstrap"、values = ["--help"] 的 Args；stdout 有帮助、stderr 为空，业务处理函数调用次数为零。
+# Expect: 返回 0；entry 收到 program = "bootstrap"、values = ["--help"] 的 Args；stdout 与无参数调用的根帮助完全相同、stderr 为空，业务处理函数调用次数为零。
 #
 # Given: Unix 宿主 argv[1] 含非法 UTF-8 字节 0xff；entry 是完整入口，stderr 写入和刷新成功。
 # ```spore

@@ -165,7 +165,8 @@ static empty_args = Args { program: "bootstrap", values: [] };
 1. `read_args` 读取一次宿主 argv，完成无损解码，返回 `Input.Ready(args)`、
    `Input.Usage` 或 `Input.Failure`；`Ready` 仅表示输入读取与编码有效。
 2. `prepare` 将同一个 `Args` 与编译器生成的 `Interface` 结合。Group
-   逐层消费命令路径，Single 不消费命令名；到叶子才检查位置参数。
+   根入口收到空 `values` 时直接产生根帮助，否则逐层消费命令路径；
+   Single 不消费命令名，到叶子才检查位置参数。
    任一已选节点剩余输入恰为 `["--help"]` 时显示该节点帮助。
 3. `Decision.Invoke` 携带选定的 Binding 及剩余业务参数。`Args.values`
    中的整条命令路径与分隔标记不会进入 `Binding.invoke` 的 values。
@@ -181,7 +182,12 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | `["run", "--help"]` | Help；不调用 run |
 | `["run", "--", "--help"]` | Invoke(run, `["--help"]`) |
 | `["run", "repo", "--help"]` | Usage；不调用 run |
-| `[]` 或 `["missing", "repo"]` | Usage；不默认选择某个命令 |
+| `[]` 或 `["--help"]` | 相同的根 Help；不默认选择命令、不调用业务 |
+| `["missing", "repo"]` | Usage；未知命令 |
+
+因此，`bootstrap` 与 `bootstrap --help` 输出完全相同的根帮助到 stdout，
+stderr 为空，写入与刷新成功后退出 0；输出失败仍退出 1。空输入显示帮助
+只适用于 Group 根入口；Single 和已选叶子继续按函数签名检查参数。
 
 对上方示意树，若 `train(employee: Str, skill: Str) -> Exit`：
 
@@ -310,11 +316,12 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
 | `init repo contract control`；`run repo`；`status repo`；`stop repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
-| 根级 `--help`；`run --help` | stdout 帮助、退出 0；无业务调用 |
+| `bootstrap`；`bootstrap --help` | stdout 根帮助完全相同、stderr 为空、退出 0；无业务调用 |
+| `run --help` | stdout 叶子帮助、退出 0；无业务调用 |
 | 示意树的 `agent list`；`agent skill train reviewer rust` | 二级／三级路径选中唯一叶子，只传业务参数，调用一次 |
 | `agent --help`；`agent skill --help`；`agent skill train --help` | 各层帮助与完整路径，输出成功退出 0，无业务调用 |
 | `agent skill`；`agent missing`；`agent -- skill` | 在正确层级诊断，输出成功退出 2，无业务调用 |
-| 空命令组输入、未知命令、缺参、多参、`run repo --help` | stderr 用法诊断、退出 2；无业务调用 |
+| 未知命令、`run` 缺参、多参、`run repo --help` | stderr 用法诊断、退出 2；无业务调用 |
 | `run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
 | 一个空字符串参数、中文、含空格参数 | 不裁剪、不重新拆词、不改写 |
 | 非 Unicode 原始参数 | 解码诊断、退出 2；无业务调用 |
