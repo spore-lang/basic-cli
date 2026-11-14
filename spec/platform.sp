@@ -31,7 +31,8 @@ pub fn main_for_host(entry: Args -> Exit) -> Int {
     exit_code(exit)
 }
 
-# 编译后的命令注册链使用这个调用关系。
+# 候选 cli(args, commands) 展开为 dispatch(Interface.Group { commands: commands }, args)。
+# commands 是静态校验后的递归命令树；该展开仍属于 README.md 的 compile.assembly 义务。
 # prepare 完成命令选择、参数检查和帮助生成，期间不调用 binding.invoke。
 # 只有 Invoke 分支调用业务函数，调用一次并原样传播 Exit。
 #

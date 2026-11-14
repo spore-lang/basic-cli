@@ -24,43 +24,114 @@
 期望类型与元素约束确定。平台引用这个声明，不另建同名类型；标准库
 供应与编译器展开、推断仍由下方装配和验证义务负责。
 
-首版支持单命令和一个平级命令组，参数全部是必填 `Str` 位置参数，
+首版提案支持单命令和有限的静态命令树，参数全部是必填 `Str` 位置参数，
 命令正常返回 `Exit`。只增加启动、参数与终端输出契约；文件、网络、
 进程执行、调度、预算和工作恢复不在本稿中扩展。现有 I/O 模块可作为
 后续实现参考，但旧 `foreign` / `uses` 语法不因此成为新版语言规则。
 
-默认值、类型转换、可选参数、短选项、环境变量输入、嵌套命令和动态
+默认值、类型转换、可选参数、短选项、环境变量输入、动态命令树和动态
 注册均不在首版。原生非 Unicode 路径也不在首版输入域内，必须明确
 拒绝而非有损解码。
 
-## 应用接口与实际调用
+## 命令树的接口提案
 
-应用 `main` 不要求 `pub`，也不接收 platform 类型参数。以下是待实现的
-注册表面提案，不是现有编译器已经提供的库 API；其中四个处理函数须由
-应用实际定义，函数体缺失不能由注册补齐：
+应用 `main` 不要求 `pub`，也不接收 platform 类型参数。下面采用
+`cli`、`command`、`group` 作为本稿的**候选拼写**，供审阅；它们尚未
+成为已接受的语言规则或现有库 API。这里只修改 spec，不提供 CLI 原型。
+处理函数必须由应用实际定义，函数体缺失不能由注册补齐：
 
 ```text
 fn main(args: Args) -> Exit {
-    cli(args)
-        .command(init)
-        .command(run)
-        .command(status)
-        .command(stop)
-        .run()
+    cli(args, [
+        command(init),
+        command(run),
+        command(status),
+        command(stop),
+    ])
 }
 ```
 
-每个 `.command(f)` 只引用一个静态可解析的具名函数。名称和参数名来自
-同一份函数声明，应用不再手写 `Command`、参数 schema 或调用包装。
-链的顺序决定帮助中的展示顺序；命令名与函数名完全一致，首版不做
-重命名或下划线转换。帮助只生成签名与固定规则，不推断业务说明。
+同一个列表内的节点处于同一层；`group` 的子列表下降一层。`command(f)`
+引用函数而不执行函数；叶子的名称、参数名与顺序来自同一份函数声明。
+列表顺序决定帮助中的展示顺序；叶子名保持函数声明名，不自动重命名或
+转换下划线。帮助生成签名与固定规则，不推断业务说明。
+
+以下是独立的层级示意，不给 bootstrap 增加真实命令。假设 `list`、
+`recruit`、`train` 是另一个示例应用的完整处理函数；它们不是 bootstrap
+内部同名能力函数的 CLI 绑定：
+
+```text
+static skills = group("skill", [command(list), command(train)]);
+
+fn main(args: Args) -> Exit {
+    cli(args, [
+        command(status),
+        group("agent", [
+            command(list),
+            command(recruit),
+            skills,
+        ]),
+    ])
+}
+```
+
+它直接对应下列路径；二级、三级使用相同的递归规则：
+
+```text
+bootstrap
+├── status
+└── agent
+    ├── list
+    ├── recruit
+    └── skill
+        ├── list
+        └── train
+```
+
+`skills` 保存完整具名子树，可在另一个父组引用；原子树不被修改，也不
+执行处理函数。相同叶子名可以出现在不同组中；同一父组下的叶子和组
+共用一个命名空间，重复名称在编译时拒绝。组名必须非空，不含空白或
+控制字符，且不以 `-` 开头。分组没有业务处理函数、位置参数或默认叶子。
+
+### 同质列表与静态转换
+
+`init`、`run` 等函数的参数数量不同，原始函数不能直接组成同质的命令
+列表。本提案要求先由 `command(f)` 读取静态函数声明，生成完整
+`Binding` 并包装为 `Command.Leaf`；`group(name, children)` 产生
+`Command.Group`。二者结果都是 `Command`，所以 `[...]` 仍是普通的
+`List[Command]`，不需要异质列表或任意函数的隐式转换。
+
+`command(f)` 是待实现的编译期适配表面，不声称普通多态函数可从运行时
+函数值恢复声明名、参数名或元数。`group` 及静态子树引用也须由编译期
+验证为有限、无环的结构；不会为了发现命令而执行应用代码。裸函数、
+动态选择的函数、循环引用、空组、重复兄弟节点或不合格签名均拒绝。
+这些义务落在 `compile.bindings` / `compile.assembly`，尚未实现。
+
+### 参考与取舍
+
+| 候选 | 层级可见性与代价 |
+| --- | --- |
+| 连续链式注册 | 需要先知道每次调用返回父节点还是子节点；不用于本稿的树形入口 |
+| 完整手写命令描述树 | 层级直接可见，但重复函数参数 schema 与调用适配器 |
+| 列表、具名分组与 `command(f)` | 嵌套表达层级，保留签名来源；代价是实现显式编译期适配 |
+
+本稿推荐第三种。[Citty 的递归 subCommands](https://github.com/unjs/citty#sub-commands)
+说明命令树可以直接由数据嵌套表达；[Typer 的子应用组合](https://typer.tiangolo.com/tutorial/subcommands/nested-subcommands/)
+提供可复用分组的参考。两者的 API 不是 Spore 的语言依据。
+[Commander 的 Commands](https://github.com/tj/commander.js#commands)
+则具体展示了链式返回值的差异：action-handler 用法返回新命令，独立
+可执行文件用法返回父对象；这正是本稿希望从入口结构中消除的歧义。
+
+## 入口装配与实际调用
 
 单命令应用直接提供带业务参数的 `main`，可有零个或多个必填 `Str`
 参数并返回 `Exit`；编译器为它生成 `Interface.Single` 和解析入口。
-多命令应用的 `main(args: Args) -> Exit` 直接接收已解码输入，上述链
-展开为对 `dispatch` 的调用，传入含完整绑定列表的 `Interface.Group`
-和原 Args。首版 Group main 只允许这一条静态注册链及一次 `.run()`，
-注册阶段不能执行其他业务表达式；宏观业务调度放在命令处理函数内。
+多命令应用的 `main(args: Args) -> Exit` 直接接收已解码输入；候选
+`cli(args, commands)` 展开为
+`dispatch(Interface.Group { commands: commands }, args)`。
+Group main 只允许这一次入口调用；其树由列表、
+`command(f)`、`group` 与已验证的静态子树引用组成，不由循环、条件或
+运行时函数产生。不执行注册回调；业务调度放在选中的叶子函数内。
 
 运行关系固定为：宿主启动 → `main_for_host` 读取输入 → 已装配入口 →
 `prepare` → 帮助／用法诊断或一次业务调用 → `exit_code` → OS 进程状态。
@@ -93,10 +164,11 @@ static empty_args = Args { program: "bootstrap", values: [] };
 
 1. `read_args` 读取一次宿主 argv，完成无损解码，返回 `Input.Ready(args)`、
    `Input.Usage` 或 `Input.Failure`；`Ready` 仅表示输入读取与编码有效。
-2. `prepare` 将同一个 `Args` 与编译器生成的 `Interface` 结合。Group 消费
-   命令名，Single 不消费命令名；随后处理帮助、开头的 `--` 和参数数量。
+2. `prepare` 将同一个 `Args` 与编译器生成的 `Interface` 结合。Group
+   逐层消费命令路径，Single 不消费命令名；到叶子才检查位置参数。
+   任一已选节点剩余输入恰为 `["--help"]` 时显示该节点帮助。
 3. `Decision.Invoke` 携带选定的 Binding 及剩余业务参数。`Args.values`
-   中的命令名与分隔标记不会进入 `Binding.invoke` 的 values。
+   中的整条命令路径与分隔标记不会进入 `Binding.invoke` 的 values。
 4. `dispatch` 才调用业务函数。例如 `run("my repo")` 只收到 repository；
    目录是否存在、权限和恢复条件继续由业务契约检查。
 
@@ -110,6 +182,22 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | `["run", "--", "--help"]` | Invoke(run, `["--help"]`) |
 | `["run", "repo", "--help"]` | Usage；不调用 run |
 | `[]` 或 `["missing", "repo"]` | Usage；不默认选择某个命令 |
+
+对上方示意树，若 `train(employee: Str, skill: Str) -> Exit`：
+
+| Args.values 的内容 | prepare 的结果 |
+| --- | --- |
+| `["agent", "skill", "train", "reviewer", "rust"]` | Invoke(train, `["reviewer", "rust"]`) |
+| `["agent", "skill", "--help"]` | Help；列该组直接子命令与完整调用前缀 |
+| `["agent", "skill"]` | Usage；在该组缺少子命令 |
+| `["agent", "missing"]` | Usage；在 agent 组遇到未知名称 |
+| `["agent", "--", "skill"]` | Usage；`--` 只在选定叶子后的参数段生效 |
+| `["agent", "skill", "train", "--", "--help", "rust"]` | Invoke(train, `["--help", "rust"]`) |
+
+分组帮助按列表顺序显示直接子组及叶子签名，叶子帮助显示其参数与退出
+规则；两者均使用完整命令路径。未进入 `--` 字面值模式时，`--help`
+不能与其他参数混用；错误定位到当前组或叶子，不回退到兄弟节点、父
+处理函数或默认命令。
 
 标准库 `List` 提供有限、有序序列，其语言定义不规定宿主 ABI 的内存
 布局。`Args` 没有解析游标、已选命令、默认参数或环境变量；增加新的
@@ -149,31 +237,36 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | `host.arguments` | `operations.sp` / `read_args` | 原始 argv → `Input`；完整约束、错误和验收写在函数体内 |
 | `cli.prepare` | `operations.sp` / `prepare` | 已绑定 Interface、Args → `Decision`；完整约束、错误和验收写在函数体内 |
 | `host.write` | `operations.sp` / `write_text` | 指定流与文本 → 写入并刷新结果；完整约束、错误和验收写在函数体内 |
-| `compile.bindings` | 编译期提供义务 | 已检查的函数声明与静态注册 → 完整 Binding；要求见下文 |
+| `compile.bindings` | 编译期提供义务 | 已检查的函数声明与静态命令树 → 完整 Command / Binding；要求见下文 |
 | `compile.assembly` | 编译与链接义务 | 选定 platform、应用及 spec → 固定宿主入口；要求见下文 |
 | `runtime.effects` | 静态与运行边界 | 运行代码、纯代码及宿主操作 → 可执行但不污染证明求值的隔离；要求见下文 |
 | `host.lifecycle` | OS 接入义务 | 宿主回调、流和进程 → 实际调用与退出行为；要求见下文 |
 | `validation.evidence` | 验证义务 | 上述实现与固定输入 → 可复核的语法、类型及进程观察；要求见下文 |
 
-**compile.bindings**：读取同一版本、已解析并检查的函数名、参数顺序、
-参数类型和返回类型，生成参数名列表及 `Binding.invoke` 的完整包装体。
+**compile.bindings**：从 `command(f)` 取得同一版本、已解析并检查的
+函数声明名、参数顺序、参数类型和返回类型，生成参数名列表及
+`Binding.invoke` 的完整包装体，再构造 `Command.Leaf`。
 包装体把参数原样交给原函数，只在 Invoke 分支调用时执行；不得在注册、
 生成帮助或部分解析时调用业务。只接受非泛型、参数均为必填 `Str`、
-返回 `Exit` 的处理函数；有默认值、依赖参数、重复命令名、空命令组、
-不可见符号或未完成函数体时产生编译诊断，不生成可运行产物。
+返回 `Exit` 的处理函数；有默认值、依赖参数、不可见符号或未完成函数体
+时产生编译诊断，不生成可运行产物。处理所有静态子树引用，检查无环、
+非空、组名有效以及每一父组下的名称唯一，叶子与组之间也不能重名。
+引用的子树按所在路径分别绑定；跨父组复用可接受，重复兄弟节点拒绝。
 验证零／一／三个参数的包装，以及函数改名、签名改变后帮助和调用同步
-变化。参数元数与来源保真目前是生成器的验证义务，尚无 MLTT 证明；
+变化，并验证异签名叶子均得到 `Command`，裸函数不会隐式成为节点。
+参数元数与来源保真目前是生成器的验证义务，尚无 MLTT 证明；
 普通函数值的运行时类型不被假定含有参数名。
 
 **compile.assembly**：输入明确版本的本 spec、应用和所选 platform，
 同时供应 Spore Spec 指定的标准库 List，固定它及 Empty／Item 的声明
 身份；平台和应用必须使用同一个类型。完成列表字面量展开与元素类型
 推断，不能按局部同名类型替换，也不能用缺失的标准库绑定继续构建。
-解析文件间名字，检查 Single／Group 模式及 Group main 的静态链限制，
+解析文件间名字，检查 Single／Group 模式及 Group main 的静态树限制，
 连接原函数、生成包装、`dispatch` 与 `main_for_host`。单命令生成
 `Args -> Exit` 入口；多命令
 使用应用的 `main(args)`，只对明确注册的函数生成绑定。固定宿主 ABI
-不能随业务参数数量变化。`cli` / `.command` / `.run` 的具体展开实现、
+不能随业务参数数量或命令深度变化。`cli` / `command` / `group` 候选表面
+及静态子树引用的具体展开实现、
 模块导入拼写、manifest 配置及跨语言 ABI 都尚未提供；缺失或不匹配
 必须阻止构建，不回退到旧的 `main() -> ()`。验收须包含两个独立应用、
 私有 main、跨文件可见性拒绝，以及错误入口签名的编译失败。
@@ -198,6 +291,9 @@ static empty_args = Args { program: "bootstrap", values: [] };
 分别报告语法识别、类型／效果检查和行为观察。旧 host 测试、旧编译器
 成功或适配文法识别均不能关闭新版义务。未解 `_`、未供给的包装体或
 未完成的效果隔离都必须保持 pending，不能当作通过或新增公设。
+命令树验收包含二级与三级路径、分组复用、同名但不同父组的叶子、混合
+元数的成功适配、各层帮助与缺失命令、错误层级、路径完整消费，以及
+空组、循环子树和同组重名的编译诊断；注册、帮助、错误均不能产生业务调用。
 列表验收包含有元素与空 Args、从字段约束得到 `List[Str]`、输入顺序和
 空字符串保真，以及同名自定义 List 不能替代标准类型的拒绝案例。
 还须逐例执行函数 Examples：实现提取器、提供 Given 所需的完整值和
@@ -206,14 +302,18 @@ static empty_args = Args { program: "bootstrap", values: [] };
 
 ## 首版验收矩阵
 
-以下以四个已实现处理函数为输入：`init` 接受三个 Str，`run`、`status`、
-`stop` 各接受一个 Str，全部返回 Exit。测试用可观察业务记录判断是否
-进入处理函数，不能只检查解析器自报的成功。
+平级案例以四个已实现处理函数为输入：`init` 接受三个 Str，`run`、
+`status`、`stop` 各接受一个 Str，全部返回 Exit。多级案例另用上方示意树
+及其完整处理函数。测试用可观察业务记录判断是否进入处理函数，不能
+只检查解析器自报的成功。
 
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
 | `init repo contract control`；`run repo`；`status repo`；`stop repo` | 只调用对应函数一次，参数保真，退出值原样传递 |
 | 根级 `--help`；`run --help` | stdout 帮助、退出 0；无业务调用 |
+| 示意树的 `agent list`；`agent skill train reviewer rust` | 二级／三级路径选中唯一叶子，只传业务参数，调用一次 |
+| `agent --help`；`agent skill --help`；`agent skill train --help` | 各层帮助与完整路径，输出成功退出 0，无业务调用 |
+| `agent skill`；`agent missing`；`agent -- skill` | 在正确层级诊断，输出成功退出 2，无业务调用 |
 | 空命令组输入、未知命令、缺参、多参、`run repo --help` | stderr 用法诊断、退出 2；无业务调用 |
 | `run -- --help`；`run -- -x`；`run -- --` | 标记后的单个值按字面传入 run |
 | 一个空字符串参数、中文、含空格参数 | 不裁剪、不重新拆词、不改写 |
@@ -221,5 +321,6 @@ static empty_args = Args { program: "bootstrap", values: [] };
 | Single 的零参数函数、一个参数函数 | 不要求子命令名；按各自签名解析后调用一次 |
 | 处理函数返回 Failure／Usage | 进程退出 1／2；平台不擅自重复调用或补报业务错误 |
 | 帮助或诊断流短写、永久失败、刷新失败 | 正确续写或退出 1；不切换流假报成功 |
-| 重复注册、错误签名、未完成处理函数或缺失模块 | 编译失败，无可运行生成物 |
+| 子树跨组复用；不同组内同名叶子 | 两条路径分别有效，帮助和调用不混淆父路径 |
+| 同组重名、循环子树、空组、动态树、裸函数、错误签名、未完成函数或缺失模块 | 编译失败，无可运行生成物 |
 | 从纯证明调用宿主操作；异常终止 | 前者静态拒绝；后者不产生成功或清理完成证据 |

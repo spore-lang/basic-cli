@@ -50,10 +50,20 @@ pub type Binding {
     pub field invoke: List[Str] -> Exit;
 }
 
+# 静态命令树的统一节点；分组只组织路径，没有处理函数或业务参数。
+# 候选 command(f) 生成 Leaf，group(name, commands) 生成 Group，二者均得到 Command。
+# 异签名函数先生成同型 Binding，再进入 List[Command]；不放宽普通列表的同质规则。
+pub type Command {
+    cases {
+        case Leaf { pub field binding: Binding; }
+        case Group { pub field name: Str; pub field commands: List[Command]; }
+    }
+}
+
 pub type Interface {
     cases {
         case Single { pub field binding: Binding; }
-        case Group { pub field bindings: List[Binding]; }
+        case Group { pub field commands: List[Command]; }
     }
 }
 
@@ -122,14 +132,34 @@ pub fn read_args() -> Input {
 # prepare(interface, Args { program: "bootstrap", values: [] })
 # ```
 # Expect: 返回 Usage，说明缺少命令；不调用 run，不写终端。
+#
+# Given: interface 的 agent 组含 skill 组，skill 下的完整 train(employee: Str, skill: Str) -> Exit 已生成绑定。
+# ```spore
+# prepare(interface, Args { program: "bootstrap", values: ["agent", "skill", "train", "reviewer", "rust"] })
+# ```
+# Expect: 返回 train 的 Invoke，values 恰为 ["reviewer", "rust"]；路径三段均已消费，没有业务调用。
+#
+# Given: 同一命令树。
+# ```spore
+# prepare(interface, Args { program: "bootstrap", values: ["agent", "skill", "--help"] })
+# ```
+# Expect: 返回该组的 Help，含完整前缀 bootstrap agent skill 及 train 签名；不列其他组的命令，不调用业务。
+#
+# Given: 同一命令树。
+# ```spore
+# prepare(interface, Args { program: "bootstrap", values: ["agent", "skill"] })
+# ```
+# Expect: 返回该组缺少子命令的 Usage；不默认选择 train，也不把 skill 当成业务参数。
 pub fn prepare(interface: Interface, args: Args) -> Decision {
     # hole: cli.prepare
     # 输入：compile.bindings 生成的有效 Interface 和一次已解码 Args；所有参数均为必填 Str。
     # 产出：合法调用返回同一 Binding 与按声明顺序排列的原值；帮助返回 Help；输入不匹配返回 Usage。
-    # 选择：Single 不消费命令名；Group 消费第一个参数选择命令，空输入和未知命令均为 Usage。
-    # 帮助：根级仅有 --help 或 Group 中已知命令后仅有 --help 时返回 Help，列出函数名、参数名、Str 和退出码。
-    # 用法：结合 program 和 Single / Group 生成可直接调用的命令形状；Single 不要求输入 main 这个名字。
-    # 字面值：仅在位置参数段开头识别一次 --，移除它后其余内容均为字面值，包括 --help、-- 和 -x。
+    # 选择：Single 直接选择其绑定；Group 每层消费一个精确匹配的名称，进入子组或选中 Leaf，不按元数猜路径。
+    # 选择：分组处空输入、未知名称或 -- 均为 Usage；找到叶子后不再把剩余参数当作子命令。
+    # 帮助：在根、已选分组或叶子处剩余输入恰为 ["--help"] 时返回该节点的 Help，不继续解析其他节点。
+    # 帮助：分组按声明顺序列出直接子组和叶子签名；叶子列参数名、Str 和退出码，均带完整调用前缀。
+    # 用法：保留 program 与已经选择的命令路径；Single 不要求输入 main 这个名字，错误指出出错层级。
+    # 字面值：仅在叶子的位置参数段开头识别一次 --，移除它后其余内容均为字面值，包括 --help、-- 和 -x。
     # 错误：未使用该 -- 时，位置参数中以 - 开头的值、混入其他参数的 --help、缺参或多参均返回 Usage。
     # 约束：不读取目标文件，不执行 invoke，不根据参数数量猜命令，不补默认值，不静默忽略参数。
     # 验收：README.md 的输入矩阵全部成立；帮助和错误只产生数据，不能触发业务或终端输出。
