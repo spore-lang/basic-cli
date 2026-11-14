@@ -2,6 +2,10 @@
 
 Basic CLI platform for [Spore](https://github.com/spore-lang/spore) — provides file I/O, process execution, environment variables, and standard I/O effects.
 
+The [minimal MLTT platform specification](spec/README.md) describes the next
+startup and CLI contract. It is a design draft with explicit implementation
+holes, separate from the existing implementation documented below.
+
 ## Overview
 
 In Spore, a **platform** bridges the pure, effect-tracked language with real-world side effects. `basic-cli` is the standard platform for command-line applications.
