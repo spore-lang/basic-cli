@@ -4,15 +4,15 @@
 # 文件间名字装配仍待实现，不能把按阅读顺序出现当作已经导入。
 # 此处的运行层函数签名不授予在 MLTT 证明求值中执行 I/O 或任意回调的能力。
 
-# 根入口复用 Command 的名称、动作和子树，另保存本次 Args；子节点不保存解析游标或父路径。
-# 这里描述完成声明适配后的类型；源 Cli { handler: f, ... } 的字段适配见 compile.bindings。
-# 根不匹配自身名称；无显式名称且无处理函数时，声明适配填入空串。
-pub type Cli <: Command {
+# 一次调用绑定已解码输入与完整根命令；名称、动作和子树只由 Command 描述。
+# 命令声明的适配与 Auto 消解见 compile.bindings；Cli 不覆盖根动作，也不复制 Command 的字段。
+pub type Cli {
     pub field args: Args;
+    pub field command: Command;
 
     # 构造或选择这个方法不执行业务；调用 run 才开始分派，也不再次读取宿主 argv。
     # Examples
-    # Given: app 为默认帮助根，其直接子节点 run 无子命令，绑定完整 run(repository: Str) -> Exit；app.args.values = ["run", "repo"]，run 返回 Success。
+    # Given: app 为默认帮助根，唯一直接子节点 run 无子命令，绑定完整 run(repository: Str) -> Exit；app.args.values = ["run", "repo"]，run 返回 Success。
     # ```spore
     # app.run()
     # ```
@@ -24,31 +24,26 @@ pub type Cli <: Command {
     # ```
     # Expect: 只调用 start 一次并返回 Exit.Failure；不输出缺省帮助，不重试。
     pub method run() -> Exit {
-        dispatch(self, self.args)
+        dispatch(self.command, self.args)
     }
 }
 
-# commands 已经过静态声明适配；构造仅保留输入和有序子树，默认自身动作是 Help。
-# 空根合法，构造不会解析 values、选择命令、输出或调用 handler。
+# command 是经过静态适配且已消解 Auto 的完整根命令；构造仅保存输入和该命令，不选择默认动作。
+# 构造不会解析 values、选择子命令、输出或调用 handler。
 # Examples
-# Given: commands 是已生成的静态子树，含完整 run(repository: Str) -> Exit 的节点。
+# Given: root 是已生成的默认帮助根，含完整 run(repository: Str) -> Exit 的节点。
 # ```spore
-# cli(Args { program: "bootstrap", values: ["run", "repo"] }, commands)
+# cli(Args { program: "bootstrap", values: ["run", "repo"] }, root)
 # ```
-# Expect: 返回 Cli，args 与 subcommands 保持原值和顺序，name 为空串，handler 为 Help；无解析、输出或业务调用。
+# Expect: 返回 Cli，args 与 command 保持原值；root 的名称、动作和子列表顺序均不改变；无解析、输出或业务调用。
 #
-# Given: 输出流可写，默认帮助根允许空子列表。
+# Given: root 的 handler 为 Help，subcommands 为空；输出流可写。
 # ```spore
-# cli(Args { program: "bootstrap", values: [] }, []).run()
+# cli(Args { program: "bootstrap", values: [] }, root).run()
 # ```
 # Expect: 输出无子命令的根帮助到 stdout，stderr 为空，返回 Exit.Success；无业务调用。
-pub fn cli(args: Args, commands: List[Command]) -> Cli {
-    Cli {
-        name: "",
-        handler: Handler.Help {},
-        subcommands: commands,
-        args: args
-    }
+pub fn cli(args: Args, command: Command) -> Cli {
+    Cli { args: args, command: command }
 }
 
 # 宿主调用固定适配入口；entry 由编译期装配产生，不要求应用 main 为 pub。
@@ -84,13 +79,13 @@ pub fn main_for_host(entry: Args -> Exit) -> Int {
     exit_code(exit)
 }
 
-# Cli.run() 将自身的 Command 视图及已保存的 Args 交给 dispatch；根与子节点共用同一结构。
-# 静态声明适配、Cli 的父视图及方法调用仍须 README.md 的 compile.assembly 供应与核验。
+# Cli.run() 将已保存的根 Command 与 Args 交给 dispatch；根与子节点共用同一命令结构。
+# 静态声明适配及方法调用仍须 README.md 的 compile.assembly 供应与核验。
 # prepare 完成命令选择、参数检查和帮助生成，期间不调用 binding.invoke。
 # 只有 Invoke 分支调用业务函数，调用一次并原样传播 Exit。
 #
 # Examples
-# Given: root 为默认帮助根，含完整 run(repository: Str) -> Exit 的节点；该函数返回 Failure。
+# Given: root 为默认帮助根，唯一直接子节点 run 无子命令，绑定完整 run(repository: Str) -> Exit；该函数返回 Failure。
 # ```spore
 # dispatch(root, Args { program: "bootstrap", values: ["run", "my repo"] })
 # ```

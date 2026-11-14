@@ -43,7 +43,7 @@ pub type Channel {
 
 # Binding 是编译器生成的内部表示，不要求应用重复声明命令或参数结构。
 # compile.bindings 必须从同一已检查函数产生声明名、参数名和调用适配器。
-# name 保存函数声明名；子命令路径使用 Command.name，根帮助前缀使用 Args.program。
+# name 保存函数声明名，供 Auto 在编译期派生 Exact；运行路径保留实际消费的名称，根帮助前缀使用 Args.program。
 # invoke 只接受 prepare 已核对元数的值，并在调用时才进入业务函数。
 pub type Binding {
     pub field name: Str;
@@ -59,15 +59,37 @@ pub type Handler {
     }
 }
 
-# 完成静态适配后的统一节点；自身动作与子命令可以同时存在。
+# Any 在子命令位置匹配并消费一个普通输入元素；与 Exact 一同按列表顺序选择，必须有一个剩余元素。
+# --help / -- 及以 - 开头的未转义输入仍按既有控制规则处理；Any 不截获它们。
+# 根由 cli 直接指定，根的 Any 不消费 Args.values；选中子节点后，实际消费的词进入帮助与诊断路径。
+# 源 name: "run" 经命令声明适配成为 Exact；普通 Str 不因此获得通用隐式转换。
+# Auto 是缺省声明请求：编译期从业务函数声明名解析为 Exact，不参与运行时匹配。
+pub type CommandName {
+    cases {
+        case Exact { pub field value: Str; }
+        case Any;
+        case Auto;
+    }
+}
+
+# 统一命令节点；自身动作与子命令可以同时存在，运行前须完成所有静态声明适配。
 # 源声明 Command { handler: f } 由 compile.bindings 先取得 f 的声明名并生成 Handler.Function。
 # 因此 f 不是直接具有 Handler 类型；这个表面适配仍待实现，不是普通函数值的隐式转换。
-# 省略 name 时由声明适配填写函数名；无函数的非根节点必须显式命名，不能用空串蒙混通过。
-# 根节点的 name 不参与匹配或帮助前缀；无处理函数且无显式名称的根由装配填入空串。
-# name 不用访问其他字段的默认初值；handler / subcommands 的默认值均不捕获正在构造的实例。
+# name 的常量默认值为 Auto，显式 Auto 与省略完全等价；适配时从 handler 派生 Exact 函数名。
+# Help 没有函数声明名：非根 Auto 拒绝；根 Auto 解析为 Any，因为根不参与名称匹配。
+# cli 指定的根不消费自身名称；显式 Any 或已有 Exact 都从节点正文开始，根帮助前缀仍取 Args.program。
+# 所有 Auto 必须在编译期消解，进入 cli / dispatch / prepare 的有效树只含 Exact / Any。
+# 三个字段的默认初值都是常量，不访问正在构造的实例或其他字段。
 # 所有异签名函数适配后均进入 List[Command]，普通列表仍保持同质。
+#
+# Examples
+# Given: run 是完整具名函数 run(repository: Str) -> Exit，静态声明适配已实现。
+# ```spore
+# Command { name: CommandName.Auto {}, handler: run }
+# ```
+# Expect: 与省略 name 等价；编译期产生 Exact("run") 与该函数的 Binding，构造期间不调用 run。
 pub type Command {
-    pub field name: Str;
+    pub field name: CommandName = CommandName.Auto {};
     pub field handler: Handler = Handler.Help {};
     pub field subcommands: List[Command] = [];
 }
@@ -114,7 +136,7 @@ pub fn read_args() -> Input {
 
 #
 # Examples
-# Given: root 是已生成的默认帮助根，含完整 run(repository: Str) -> Exit 的节点，run 无子命令。
+# Given: root 是已生成的默认帮助根，唯一直接子节点 run 无子命令，绑定完整 run(repository: Str) -> Exit。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: ["run", "my repo"] })
 # ```
@@ -144,7 +166,7 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 返回根 Help，与空 values 的帮助文本完全相同；不默认选择命令，不调用 run，不写终端。
 #
-# Given: root 的 agent 节点含 skill 节点，两者 handler 均为 Help；skill 下的完整 train(employee: Str, skill: Str) -> Exit 已生成绑定。
+# Given: root 唯一的 agent 子节点仅含 skill 子节点，两者 handler 均为 Help；skill 仅含无子命令的 train 节点，完整 train(employee: Str, skill: Str) -> Exit 已生成绑定。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: ["agent", "skill", "train", "reviewer", "rust"] })
 # ```
@@ -168,7 +190,7 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 返回 agent 层级的 Usage；缺省 Help 不吞掉未知名称，也不搜索其他分支。
 #
-# Given: root 中 run 自身接受一个 Str，且有零参数子命令 subcommand；函数完整，均已生成绑定。
+# Given: root 唯一的 run 子节点自身接受一个 Str，且仅有零参数子命令 subcommand，后者无子命令；函数完整，均已生成绑定。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: ["run", "subcommand"] })
 # ```
@@ -204,6 +226,42 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 返回 first 的 Invoke，values 为 ["repo"]；保持声明顺序，不合并同名子树。
 #
+# Given: root 的直接子列表依次为 Any(first)、Exact("run", second)，两节点均无子命令、各接受一个 Str，绑定完整。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: ["run", "repo"] })
+# ```
+# Expect: 返回 first 的 Invoke，values 恰为 ["repo"]；Any 消费 run，不优先选择后面的 Exact，也不把 run 传给处理函数。
+#
+# Given: root 的直接子列表依次为 Exact("run", first)、Any(second)，两节点均无子命令、各接受一个 Str，绑定完整。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: ["other", "repo"] })
+# ```
+# Expect: 返回 second 的 Invoke，values 恰为 ["repo"]；实际消费的 other 成为当前路径，原始 Args 保持不变。
+#
+# Given: root 的 handler 为 Help，唯一直接子节点为 Any，绑定完整零参数函数，子节点无子命令。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: [] })
+# ```
+# Expect: 返回根 Help；Any 需要一个输入元素，不能在空输入时自动进入。
+#
+# Given: 同一默认帮助根与 Any 子节点。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: ["--help"] })
+# ```
+# Expect: 返回根 Help；Any 不消费 --help，也不选择子节点的函数。
+#
+# Given: 同一默认帮助根与 Any 子节点。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: ["--", "other"] })
+# ```
+# Expect: 返回根自身 Help 动作的多余参数 Usage；-- 停止路由，Any 不消费 other。
+#
+# Given: root 仅含一个 Any 子节点，该节点仅含名为 status 的子节点并绑定完整零参数函数；所有自身动作均完整。
+# ```spore
+# prepare(root, Args { program: "bootstrap", values: ["project-1", "status", "--help"] })
+# ```
+# Expect: 返回 status 的 Help，完整路径为 bootstrap project-1 status；不把 Any 或函数声明名当作实际消费的词。
+#
 # Given: root 的自身函数是完整的 start() -> Exit，没有子命令。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: [] })
@@ -222,6 +280,12 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 返回根函数缺参的 Usage；不以缺省帮助掩盖自定义函数的参数要求。
 #
+# Given: root.name 为 Any，自身绑定完整 init(repository: Str, contract_file: Str, control_file: Str) -> Exit；没有子节点匹配 repo。
+# ```spore
+# prepare(root, Args { program: "/tmp/renamed-bootstrap", values: ["repo", "contract.input", "control.input"] })
+# ```
+# Expect: 返回根 init 的 Invoke，values 保持三个原值；Any 不消费 repo，也不要求启动名为 bootstrap 或 init。
+#
 # Given: root 的 handler 为 Help，subcommands 为空。
 # ```spore
 # prepare(root, Args { program: "bootstrap", values: ["--", "--help"] })
@@ -229,20 +293,23 @@ pub fn read_args() -> Input {
 # Expect: 返回多余字面参数的 Usage；转义后的 --help 不再触发帮助。
 pub fn prepare(root: Command, args: Args) -> Decision {
     # hole: cli.prepare
-    # 输入：compile.bindings 生成的有效根 Command 和一次已解码 Args；业务参数均为必填 Str。
+    # 输入：compile.bindings 生成的有效根 Command 和一次已解码 Args；树中已无 Auto，业务参数均为必填 Str。
     # 产出：合法调用返回同一 Binding 与按声明顺序排列的原值；帮助返回 Help；输入不匹配返回 Usage。
-    # 根：从 args.values 开始，不匹配或消费 root.name；args.program 只作为输出的调用前缀。
+    # 根：cli 已指定根节点，从 args.values 开始，不匹配或消费 root.name；根 Any 不消费一个业务输入。
+    # 根：已有 Exact 名称的 Command 也可作为根复用，名称仍不消费；args.program 只作为输出的调用前缀。
     # 路由顺序一：当前剩余输入恰为 ["--help"] 时返回本节点 Help，不调用任何 handler。
     # 路由顺序二：当前剩余输入以 -- 开头时，移除一次标记，选定本节点自身动作，其余全部按字面值处理。
-    # 路由顺序三：否则按 subcommands 的原顺序选第一个与首参数精确同名的子节点，消费该名称并重复上述规则。
+    # 路由顺序三：有剩余输入时按 subcommands 原顺序寻找首个匹配者：Exact.value 精确相等，Any 匹配一个不以 - 开头的输入元素。
+    # 路由顺序三：选定后消费一个原始元素、记录其实际值为路径，并在子节点重复规则；Exact 不优先于排在前面的 Any。
     # 路由顺序四：无子节点命中或输入为空时，选定当前节点自身动作；之后不再寻找子命令。
-    # 提交：名称命中即选定；不按参数元数试探，不合并同名子树，不因后续错误回退到兄弟节点或父动作。
+    # 提交：Exact 或 Any 命中即选定；不按参数元数试探，不合并子树，不因后续错误回退到兄弟节点或父动作。
     # 自身动作：Handler.Function 按 Binding.parameters 核对元数；零参数可以调用，缺参或多参为 Usage。
     # 缺省动作：Handler.Help 只接受空参数（包括移除单独 -- 后为空）；返回与本节点 --help 相同的 Help。
     # 缺省动作：有剩余参数时返回当前节点的 Usage，不吞掉未知名称或多余字面参数；空子列表本身合法。
     # 帮助：显示当前自身动作的参数名、Str 和退出规则，以及按声明顺序列出的全部直接子命令与自身签名。
-    # 帮助：缺省动作标示为显示帮助；同名子项保持原顺序并注明首个优先，不把后续同名项显示成另一条可选路由。
-    # 用法：保留 program 与已消费的完整命令路径；显式 name 决定子命令路径，不被 Binding.name 覆盖。
+    # 帮助：缺省动作标示为显示帮助；Any 子项明确显示为通配项。重叠匹配项保持原顺序并注明首个优先，不伪装成均可到达的路由。
+    # 用法：保留 program 与实际消费的完整命令路径，Any 的已匹配词也须保留；不以 Binding.name 或 Any 的显示标记替换它。
+    # 名称保真：Any 消费恰好一个元素，空字符串或含空白元素也不拆分；该词只进入路径，不自动增加处理函数的业务参数。
     # 字面值：-- 在开始自身参数解析前只识别一次；其后 --help、--、-x 都保留原值，不再生成帮助或路由。
     # 错误：未进入字面值模式时，业务参数中以 - 开头的值（包括混用的 --help 或中途出现的 --）返回 Usage。
     # 执行：进入子命令不会调用父动作；参数阶段失败也不能触发回调。每次 dispatch 最多调用选定业务函数一次。
