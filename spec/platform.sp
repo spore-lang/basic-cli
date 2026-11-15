@@ -40,11 +40,11 @@ pub fn main_for_host(entry: List[Str] -> Exit) -> Int {
 
 # prepare 在调用前完成名称匹配、角色绑定和内层值解码；Invoke 已捕获正确类型的实参。
 # Examples
-# Given: root 为 Any / Help，run 子节点绑定完整 run(repository: Positional[Option[FilePath]]) -> Exit；业务返回 Failure。
+# Given: root 为 Any / Help，run 子节点绑定完整 run(repository: OptionalPositional[FilePath]) -> Exit；业务返回 Failure。
 # ```spore
 # dispatch(root, ["bootstrap", "run", "my repo"])
 # ```
-# Expect: 只调用 run(Positional(Some(FilePath("my repo")))) 一次，原样返回 Failure，不补报业务诊断或重试。
+# Expect: 只调用 run(OptionalPositional.Some(FilePath("my repo"))) 一次，原样返回 Failure，不补报业务诊断或重试。
 #
 # Given: 同一 root。
 # ```spore

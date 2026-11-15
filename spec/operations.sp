@@ -1,6 +1,6 @@
 # basic-cli 的数据、名称匹配与宿主边界契约。
 # Str / Int / Bool 为 MLTT 基线内建数据；List 使用 Spore Spec 指定的同一个标准库声明。
-# 本稿显式定义 Option、FilePath、Positional 和 Named；应用导入同一名义类型，不另建同名副本。
+# 本稿显式定义 Option、FilePath、OptionalPositional / OptionalNamed 及其必填分支别名；应用导入同一名义类型，不另建同名副本。
 
 pub type Option[Value: Type] {
     cases {
@@ -15,14 +15,34 @@ pub type FilePath {
     pub field text: Str;
 }
 
-# 参数角色是普通包装类型，业务通过 .value 取得内层值；不引入注解语法或隐式解包。
-pub type Positional[Value: Type] {
-    pub field value: Value;
+# 必填参数是可选类型的 Some 分支；同一 Value 下可向上用于可选参数及 Option。
+# 角色来自形参声明类型，不从上转后的 Option 或运行时分支推断。
+pub type OptionalPositional[Value: Type] {
+    cases {
+        pub case None;
+        pub case Some { pub field value: Value; }
+    }
 }
 
-pub type Named[Value: Type] {
-    pub field value: Value;
+pub static Positional[Value: Type] = OptionalPositional[Value].Some;
+
+pub type OptionalNamed[Value: Type] {
+    cases {
+        pub case None;
+        pub case Some { pub field value: Value; }
+    }
 }
+
+pub static Named[Value: Type] = OptionalNamed[Value].Some;
+
+# 两端名义构造器由本包定义；这些公开关联仍须核验分支覆盖、成员和路径一致性。
+# Some 经角色根或 Option.Some 到 Option 的路径必须保留同一个 value；None 对应 None。
+pub impl[Value: Type] OptionalPositional[Value].None <: Option[Value].None;
+pub impl[Value: Type] OptionalPositional[Value].Some <: Option[Value].Some;
+pub impl[Value: Type] OptionalPositional[Value] <: Option[Value];
+pub impl[Value: Type] OptionalNamed[Value].None <: Option[Value].None;
+pub impl[Value: Type] OptionalNamed[Value].Some <: Option[Value].Some;
+pub impl[Value: Type] OptionalNamed[Value] <: Option[Value];
 
 pub type Exit {
     cases {
@@ -46,8 +66,8 @@ pub type ParameterRole {
     }
 }
 
-# role 来自外层包装，kind 来自 Str / FilePath，optional 来自内层是否为 Option。
-# 例如 output: Named[Option[FilePath]] 对应 Named / Path / true；名称生成 --output。
+# role / optional 来自声明的角色类型：Some 别名必填，角色根可省略；kind 来自 Str / FilePath。
+# 例如 output: OptionalNamed[FilePath] 对应 Named / Path / true；名称生成 --output。
 pub type ParameterKind {
     cases {
         pub case Text;
@@ -62,7 +82,7 @@ pub type Parameter {
     pub field optional: Bool;
 }
 
-# bind 先扫描选项与位置值、核对必填项并解码，再捕获完整包装值；构造 invoke 不调用处理函数。
+# bind 先扫描选项与位置值、核对必填项并解码，再捕获完整角色值；构造 invoke 不调用处理函数。
 # 该值的完整提供者为 compile.bindings，不能把函数字段当作自动得到的实现。
 pub type ArgumentBinding {
     cases {
@@ -73,13 +93,13 @@ pub type ArgumentBinding {
 
 pub type Binding {
     pub field name: Str;
-    # 保留完整形参声明顺序；位置值只按 Positional 子序列的顺序绑定。
+    # 保留完整形参声明顺序；位置值只按 Positional / OptionalPositional 子序列的顺序绑定。
     pub field parameters: List[Parameter];
     # 输入是选定节点的原始剩余列表，含尚未消费的 --；不含已消费的命令名称。
     # 从左到右扫描：-- 开启字面模式；此前 --name 消费一个非 - 前缀值，其余非 - 前缀值为位置值。
     # 字面模式中的每个 token 都是位置值，包括后续 -- 和 --help；不再匹配选项或子节点。
     # 未知 / 重复选项、缺值、未转义的 - 前缀值、缺必填、多余位置值或解码失败均返回 Usage。
-    # Str 原样保留；FilePath 拒绝空文本 / NUL。省略 Option 为 None，提供值为 Some；最后构造外层角色包装。
+    # Str 原样保留；FilePath 拒绝空文本 / NUL。省略可选参数构造对应角色的 None，提供值构造其 Some；必填分支不接受省略。
     # 成功按原形参顺序捕获实参；纯、确定、终止、零 I/O，不以调用业务来试探绑定结果。
     pub field bind: List[Str] -> ArgumentBinding;
 }
@@ -111,11 +131,11 @@ pub type Command {
 
     # args 是从本节点名称开始的完整列表；应用入口直接传入完整宿主 argv。
     # Examples
-    # Given: root 为 Any 根，默认 Help，唯一子节点绑定完整 run(repository: Positional[Option[FilePath]]) -> Exit；run 返回 Success。
+    # Given: root 为 Any 根，默认 Help，唯一子节点绑定完整 run(repository: OptionalPositional[FilePath]) -> Exit；run 返回 Success。
     # ```spore
     # root.run(["bootstrap", "run", "my repo"])
     # ```
-    # Expect: 消费 bootstrap 和 run；仅调用 run(Positional(Some(FilePath("my repo")))) 一次，返回 Success。
+    # Expect: 消费 bootstrap 和 run；仅调用 run(OptionalPositional.Some(FilePath("my repo"))) 一次，返回 Success。
     #
     # Given: 同一 root，正常输出。
     # ```spore
@@ -127,7 +147,7 @@ pub type Command {
     # ```spore
     # named.run(["run", "repo"])
     # ```
-    # Expect: 此子树作为入口时仍匹配并消费 run；handler 只收到 Positional(Some(FilePath("repo")))。
+    # Expect: 此子树作为入口时仍匹配并消费 run；handler 只收到 OptionalPositional.Some(FilePath("repo"))。
     pub method run(args: List[Str]) -> Exit {
         dispatch(self, args)
     }
@@ -224,17 +244,17 @@ pub fn read_args() -> Input {
 
 # 下列 root 除非另行说明均为显式 Any 根；Given 中的处理函数与 Binding 是须供应的完整夹具。
 # Examples
-# Given: root 默认 Help，唯一子节点绑定完整 run(repository: Positional[Option[FilePath]]) -> Exit，无子命令。
+# Given: root 默认 Help，唯一子节点绑定完整 run(repository: OptionalPositional[FilePath]) -> Exit，无子命令。
 # ```spore
 # prepare(root, ["bootstrap", "run", "my repo"])
 # ```
-# Expect: Invoke 捕获 run 和 Positional(Some(FilePath("my repo")))；当前不调用 handler，不写终端。
+# Expect: Invoke 捕获 run 和 OptionalPositional.Some(FilePath("my repo"))；当前不调用 handler，不写终端。
 #
 # Given: 同一 root。
 # ```spore
 # prepare(root, ["bootstrap", "run"])
 # ```
-# Expect: Invoke 捕获 run 和 Positional(None)；不会产生缺参 Usage，也不替业务选择当前目录。
+# Expect: Invoke 捕获 run 和 OptionalPositional.None；不会产生缺参 Usage，也不替业务选择当前目录。
 #
 # Given: 同一 root。
 # ```spore
@@ -252,7 +272,7 @@ pub fn read_args() -> Input {
 # ```spore
 # prepare(root, ["bootstrap", "run", "--", "--help"])
 # ```
-# Expect: Invoke 捕获 Positional(Some(FilePath("--help")))；不产生帮助，不访问这个路径。
+# Expect: Invoke 捕获 OptionalPositional.Some(FilePath("--help"))；不产生帮助，不访问这个路径。
 #
 # Given: 同一 root。
 # ```spore
@@ -264,7 +284,7 @@ pub fn read_args() -> Input {
 # ```spore
 # prepare(root, ["bootstrap", "run", "repo", "--"])
 # ```
-# Expect: Invoke 捕获 run(Positional(Some(FilePath("repo"))))；末尾 -- 开启空的字面后缀，不增加位置值。
+# Expect: Invoke 捕获 run(OptionalPositional.Some(FilePath("repo")))；末尾 -- 开启空的字面后缀，不增加位置值。
 #
 # Given: 同一 root。
 # ```spore
@@ -296,17 +316,17 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 前者捕获 status 的零参调用；后者 Usage，根 Auto 同样按 Binding.name 匹配。
 #
-# Given: root 默认 init(repository: Positional[Option[FilePath]])，三个同签名 init / run / status 子节点，均无子命令。
+# Given: root 默认 init(repository: OptionalPositional[FilePath])，三个同签名 init / run / status 子节点，均无子命令。
 # ```spore
 # prepare(root, ["/tmp/renamed-bootstrap", "repo"])
 # ```
-# Expect: Any 消费完整启动路径；没有子命令名匹配 repo，Invoke 捕获 init(Positional(Some(FilePath("repo"))))。
+# Expect: Any 消费完整启动路径；没有子命令名匹配 repo，Invoke 捕获 init(OptionalPositional.Some(FilePath("repo")))。
 #
 # Given: 同一 root。
 # ```spore
 # prepare(root, ["bootstrap", "--", "run"])
 # ```
-# Expect: Invoke 捕获 init(Positional(Some(FilePath("run"))))，不进入 run 子命令。
+# Expect: Invoke 捕获 init(OptionalPositional.Some(FilePath("run")))，不进入 run 子命令。
 #
 # Given: root 默认 Help，agent / skill 组为 Help，train(employee: Positional[Str], skill: Positional[Str]) 为完整函数。
 # ```spore
@@ -410,17 +430,17 @@ pub fn read_args() -> Input {
 # ```
 # Expect: 前者为空路径 Usage，后者为命名选项缺值 Usage；首版不接受 - 前缀命名值。
 #
-# Given: root 默认 Help，唯一子节点绑定完整 inspect(label: Named[Option[Str]], source: Positional[Option[FilePath]]) -> Exit，无子命令；inspect 返回 Success。
+# Given: root 默认 Help，唯一子节点绑定完整 inspect(label: OptionalNamed[Str], source: OptionalPositional[FilePath]) -> Exit，无子命令；inspect 返回 Success。
 # ```spore
 # prepare(root, ["tool", "inspect"])
 # ```
-# Expect: 捕获 inspect(Named(None), Positional(None))；两个不同角色的省略值都保留外层包装。
+# Expect: 捕获 inspect(OptionalNamed.None, OptionalPositional.None)；两个省略值各自保留 OptionalNamed / OptionalPositional 身份。
 #
 # Given: 同一 root。
 # ```spore
 # prepare(root, ["tool", "inspect", "src", "--label", ""])
 # ```
-# Expect: 按声明顺序捕获 Named(Some(""))、Positional(Some(FilePath("src")))；空 Str 是显式值，不是 None。
+# Expect: 按声明顺序捕获 OptionalNamed.Some("")、OptionalPositional.Some(FilePath("src"))；空 Str 是显式值，不是 None。
 #
 # Given: 同一 root。
 # ```spore
@@ -446,7 +466,7 @@ pub fn prepare(root: Command, args: List[Str]) -> Decision {
     # 路由四：无子节点命中或余项为空时选择当前自身动作；开始参数绑定后不再寻找子命令。
     # 提交：名称选中后不按元数、类型或后续路径回退，不合并同名子树，也不执行父动作。
     # 绑定：Function 把原始余项完整交给 binding.bind 一次，包括首项或中途的 --，不预先删除或重排选项。
-    # 绑定：Named 按 --形参名取值，Positional 按位置子序列取值；Option 决定省略，不改变角色。
+    # 绑定：Named 按 --形参名取值，Positional 按位置子序列取值；声明为角色根或 Some 分支决定能否省略，不改变角色。
     # 绑定：ArgumentBinding.Ready 的完整闭包进入 Decision.Invoke；Usage 附加当前实际路径后返回，不调用闭包。
     # 缺省：Help 只接受空余项或恰为 ["--"]，返回与当前 --help 相同的帮助；其他余项均 Usage。
     # 控制：--help 只在上述独占余项时显示帮助；混用且未被 -- 转义时 Usage，不成为 Named 参数名。
