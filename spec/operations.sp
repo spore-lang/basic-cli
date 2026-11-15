@@ -1,374 +1,373 @@
-# basic-cli 首版数据、名称比较与完整函数 hole。
-# Str / Int / Bool 为选定语言基线的内建数据；不另造宇宙、公设或空的宿主类型。
-# List 使用 Spore Spec 指定的标准库声明；[] 展开到同一类型，不在平台内复制定义。
-# 标准库装配和元素类型推断仍由 compile.assembly / validation.evidence 提供实现与验证。
+# basic-cli 的数据、名称匹配与宿主边界契约。
+# Str / Int / Bool 为 MLTT 基线内建数据；List 使用 Spore Spec 指定的同一个标准库声明。
+# 本稿显式定义 Option 和 FilePath，应用导入这两个名义类型，不另建同名副本或隐式替换为 Lab 类型。
 
-# 一次调用的已解码输入快照；仍未选择命令、检查元数或处理 --help / --。
-# Args 只携带输入数据；命令定义、参数 schema 与业务权限都不由它提供。
-# Examples
-# Given: 启动器传入 argv = ["bootstrap", "run", "my repo"]；引号已由启动器处理。
-# ```spore
-# Args {
-#     program: "bootstrap",
-#     values: ["run", "my repo"]
-# }
-# ```
-# Expect: values 中只有两个元素；"my repo" 保持为一个参数。此构造表达式本身不读取进程输入。
-#
-# ```spore
-# Args { program: "bootstrap", values: [] }
-# ```
-# Expect: values 的类型由字段约束确定为 List[Str]，内容为空；尚未选择命令或检查命令是否缺失。
-pub type Args {
-    # program 只用于展示，不能作为可信路径或权限依据。
-    pub field program: Str;
-    # values 不包含 argv[0]；保留顺序、空字符串和每个参数的边界。
-    pub field values: List[Str];
+pub type Option[Value: Type] {
+    cases {
+        pub case None;
+        pub case Some { pub field value: Value; }
+    }
+}
+
+# 保留输入的路径文本；构造值不证明目录存在、已规范化或具有任何权限。
+# CLI 解码拒绝空文本及 NUL；实际路径解析、存在性与目录检查由应用负责。
+pub type FilePath {
+    pub field text: Str;
 }
 
 pub type Exit {
     cases {
-        case Success;
-        case Failure;
-        case Usage;
+        pub case Success;
+        pub case Failure;
+        pub case Usage;
     }
 }
 
 pub type Channel {
     cases {
-        case Stdout;
-        case Stderr;
+        pub case Stdout;
+        pub case Stderr;
     }
 }
 
-# Binding 是编译器生成的内部表示，不要求应用重复声明命令或参数结构。
-# compile.bindings 必须从同一已检查函数产生声明名、参数名和调用适配器。
-# name 保存函数声明名，供 Auto 在名称比较和帮助中读取；运行路径保留实际消费的名称，根帮助前缀使用 Args.program。
-# invoke 只接受 prepare 已核对元数的值，并在调用时才进入业务函数。
+# 当前三种类别全部按位置绑定；名称只用于帮助，不自动产生 --name 选项。
+# Text / Path 必填；OptionalPath 对应最后一个 Option[FilePath] 参数，缺省传入 None。
+pub type ParameterKind {
+    cases {
+        pub case Text;
+        pub case Path;
+        pub case OptionalPath;
+    }
+}
+
+pub type Parameter {
+    pub field name: Str;
+    pub field kind: ParameterKind;
+}
+
+# bind 先检查元数并解码，再把已检查的实参捕获到 invoke；构造该闭包不调用处理函数。
+# 该值的完整提供者为 compile.bindings，不能把函数字段当作自动得到的实现。
+pub type ArgumentBinding {
+    cases {
+        pub case Ready { pub field invoke: () -> Exit; }
+        pub case Usage { pub field message: Str; }
+    }
+}
+
 pub type Binding {
     pub field name: Str;
-    pub field parameters: List[Str];
-    pub field invoke: List[Str] -> Exit;
+    pub field parameters: List[Parameter];
+    pub field bind: List[Str] -> ArgumentBinding;
 }
 
-# 编译后的自身动作；Help 由 prepare 结合当前节点与路径产生，不伪装成业务回调。
 pub type Handler {
     cases {
-        case Help;
-        case Function { pub field binding: Binding; }
+        pub case Help;
+        pub case Function { pub field binding: Binding; }
     }
 }
 
-# Any 在子命令位置匹配一个普通输入元素；与 Exact / Auto 一同按列表顺序选择，由路由层消费匹配的元素。
-# --help / -- 及以 - 开头的未转义输入仍按既有控制规则处理；Any 不截获它们。
-# 根由 cli 直接指定，根的 Any 不消费 Args.values；选中子节点后，实际消费的词进入帮助与诊断路径。
-# 显式名称写 CommandName.Exact { value: "run" }；name 字段不接受裸 Str。
-# Auto 保留在命令值中，比较时使用已有 Binding.name，不反射普通函数值，也不调用业务。
+# Exact / Auto 比较一个名称，Any 接受一个名称；消费行为由 prepare 统一负责。
+# 名称 token 只进入已消费路径，不自动成为业务参数。Any 既不匹配零个，也不吞掉多个 token。
 pub type CommandName {
     cases {
-        case Exact { pub field value: Str; }
-        case Any;
-        case Auto;
+        pub case Exact { pub field value: Str; }
+        pub case Any;
+        pub case Auto;
     }
 }
 
-# 统一命令节点；自身动作与子命令可以同时存在，运行前须完成所有静态声明适配。
-# 源声明 Command { handler: f } 由 compile.bindings 先取得 f 的声明名并生成 Handler.Function。
-# 因此 f 不是直接具有 Handler 类型；这个表面适配仍待实现，不是普通函数值的隐式转换。
-# name 的常量默认值为 Auto，显式 Auto 与省略完全等价；编译期只生成绑定，不改写名称 case。
-# Help 没有函数声明名：非根 Auto 拒绝；根保留 Auto，因为根不参与名称匹配。
-# cli 指定的根不消费自身名称；三种 case 都从节点正文开始，根帮助前缀仍取 Args.program。
-# 三个字段的默认初值都是常量，不访问正在构造的实例或其他字段。
-# 所有异签名函数适配后均进入 List[Command]，普通列表仍保持同质。
-#
-# Examples
-# Given: run 是完整具名函数 run(repository: Str) -> Exit，静态声明适配已实现。
-# ```spore
-# Command { name: CommandName.Auto {}, handler: run }
-# ```
-# Expect: 与省略 name 等价；name 保持 Auto，Binding.name 为 "run"，构造期间不调用 run。
+# handler: f 的源声明由 compile.bindings 适配为 Handler.Function；普通函数值不是 Handler。
+# 所有节点（包括根）均须有可匹配名称：Help + Auto 无声明名，装配时拒绝。
+# 字段默认值为常量；构造、引用和选择方法不解析参数或执行业务。
 pub type Command {
     pub field name: CommandName = CommandName.Auto {};
     pub field handler: Handler = Handler.Help {};
     pub field subcommands: List[Command] = [];
+
+    # args 是从本节点名称开始的完整列表；应用入口直接传入完整宿主 argv。
+    # Examples
+    # Given: root 为 Any 根，默认 Help，唯一子节点绑定完整 run(repository: Option[FilePath]) -> Exit；run 返回 Success。
+    # ```spore
+    # root.run(["bootstrap", "run", "my repo"])
+    # ```
+    # Expect: 消费 bootstrap 和 run；仅调用 run(Some(FilePath("my repo"))) 一次，返回 Success。
+    #
+    # Given: 同一 root，正常输出。
+    # ```spore
+    # root.run([])
+    # ```
+    # Expect: 缺少本节点名称，返回 Usage；不默认显示帮助，不调用业务。
+    #
+    # Given: named.name 为 Exact("run")，绑定同一可选目录函数，无子命令。
+    # ```spore
+    # named.run(["run", "repo"])
+    # ```
+    # Expect: 此子树作为入口时仍匹配并消费 run；handler 只收到 Some(FilePath("repo"))。
+    pub method run(args: List[Str]) -> Exit {
+        dispatch(self, args)
+    }
 }
 
-# 只比较名称；路由层先处理 --help / -- 与未转义选项，再对直接子节点按顺序调用。
-# 不消费输入、不生成帮助、不调用业务；根不经过此比较。
-# Help 没有声明名，Auto / Help 比较为 false；有效的非根 Auto 在静态装配时已要求 Function。
-#
+# 纯名称比较，不消费输入、不解释控制标记、不生成帮助、不调用业务。
+# 根与子节点使用同一比较；控制标记只在一个节点已经匹配后的剩余输入中解释。
 # Examples
-# Given: command.name = CommandName.Exact { value: "execute" }，handler 绑定完整 run(repository: Str) -> Exit。
+# Given: command.name 为 Exact("execute")，handler 绑定完整 run(repository: Str) -> Exit。
 # ```spore
 # (matches_name(command, "execute"), matches_name(command, "run"))
 # ```
-# Expect: 结果为 (true, false)；显式名称只影响路由，Binding.name 仍为 "run"，业务调用为零。
+# Expect: (true, false)；函数声明名不成为第二个入口名称。
 #
-# Given: command.name = CommandName.Auto {}，handler 绑定同一完整 run 函数。
+# Given: command.name 为 Auto，handler 绑定同一 run。
 # ```spore
 # (matches_name(command, "run"), matches_name(command, "execute"))
 # ```
-# Expect: 结果为 (true, false)；name 保持 Auto，读取 Binding.name，不调用 run。
+# Expect: (true, false)；Auto 保持原值，读取 Binding.name。
 #
-# Given: command.name = CommandName.Any {}，handler 为 Help。
+# Given: command.name 为 Any，handler 为 Help。
 # ```spore
-# (matches_name(command, "other"), matches_name(command, ""))
+# (matches_name(command, "bootstrap"), matches_name(command, ""))
 # ```
-# Expect: 结果为 (true, true)；空字符串是一个完整输入元素；本函数不消费它，也不输出帮助。
+# Expect: (true, true)；每个字符串都是一个 token，不拆词，也不读取宿主程序名。
 fn matches_name(command: Command, input: Str) -> Bool {
     match (command.name, command.handler) {
-        (CommandName.Exact { value: let expected }, _) => input == expected,
+        (CommandName.Exact { value: let expected }, _) => text_equal(input, expected),
         (CommandName.Any {}, _) => true,
-        (CommandName.Auto {}, Handler.Function { binding: let binding }) => input == binding.name,
+        (CommandName.Auto {}, Handler.Function { binding: let binding }) => text_equal(input, binding.name),
         (CommandName.Auto {}, Handler.Help {}) => false
     }
 }
 
+# 命题等同与可执行判定分开；名称比较需要 Bool，不改变语言中 == 的含义。
+# Examples
+# ```spore
+# (text_equal("run", "run"), text_equal("run", "RUN"), text_equal("é", "é"))
+# ```
+# Expect: (true, false, false)；最后两串的 Unicode 标量序列不同，不做规范化。
+fn text_equal(left: Str, right: Str) -> Bool {
+    # hole: text.equal
+    # 输入：两个有效 Str；产出：仅当完整 Unicode 标量序列相同才为 true，否则为 false。
+    # 条件：纯、全定义、确定且终止；允许空串，不裁剪、不折叠大小写、不做路径或 Unicode 规范化。
+    # 失败：无业务失败分支；实现缺失或不能保持上述语义时装配拒绝，不能用 == 的命题值冒充 Bool。
+    # 验收：相同串、空串、前缀差异、大小写及规范等价但标量不同的串得到精确布尔值，零 I/O。
+    _
+}
+
 pub type Input {
     cases {
-        case Ready { pub field args: Args; }
-        case Usage { pub field message: Str; }
-        case Failure { pub field message: Str; }
+        pub case Ready { pub field args: List[Str]; }
+        pub case Usage { pub field message: Str; }
+        pub case Failure { pub field message: Str; }
     }
 }
 
 pub type Decision {
     cases {
-        case Invoke { pub field binding: Binding; pub field values: List[Str]; }
-        case Help { pub field text: Str; }
-        case Usage { pub field message: Str; }
+        pub case Invoke { pub field invoke: () -> Exit; }
+        pub case Help { pub field text: Str; }
+        pub case Usage { pub field message: Str; }
     }
 }
 
-#
 # Examples
 # Given: 宿主 argv 为 ["bootstrap", "run", "my repo", ""]，编码有效。
 # ```spore
 # read_args()
 # ```
-# Expect: 返回 Ready(Args)，program 为 "bootstrap"，values 依次为 "run"、"my repo"、""；不裁剪或再次拆词，不输出终端。
+# Expect: Ready.args 恰为原四元素列表；首项保留，空字符串与空白不被裁剪或重拆。
 #
-# Given: Unix 宿主原始参数中包含非法 UTF-8 字节 0xff。
+# Given: 宿主提供空 argv。
 # ```spore
 # read_args()
 # ```
-# Expect: 返回 Input.Usage；不返回 Ready，不写 stdout / stderr，不调用业务函数。
+# Expect: 返回 Ready([])，不补程序名；后续 Command.run([]) 报缺少名称。
+#
+# Given: Unix 宿主 argv[1] 含非法 UTF-8 字节 0xff。
+# ```spore
+# read_args()
+# ```
+# Expect: 返回 Usage；不以替换字符构造路径，不输出、不调用应用。
 pub fn read_args() -> Input {
     # hole: host.arguments
-    # 输入：宿主提供的本次原始 argv；本函数不得读取环境变量、业务文件或启动业务。
-    # 产出：解码后返回 Ready；program 来自 argv[0]，其余参数逐项进入 values；缺失 argv[0] 时显示 basic-cli。
-    # 约束：首版只接受可无损转换为 Str 的 Unicode 输入；Unix 严格 UTF-8，Windows 拒绝未配对 UTF-16 代理项。
-    # 保真：不使用替换字符，不再次按 shell 拆词，不展开变量、通配符或 @文件，不裁剪空白和空参数。
-    # 失败：编码不满足约束返回 Usage；读取机制故障返回 Failure。诊断由 main_for_host 输出，本函数不写终端。
-    # 验收：无参、中文、含空格与空字符串保持形状；非法编码返回 Usage 且应用调用次数为零。
+    # 输入：宿主本次完整原始 argv；首项与后续项使用相同的无损解码过程。
+    # 产出：一次读取后返回同序 List[Str]，保留首项及每个参数边界；空列表仍为空。
+    # 约束：首版只接受 Unicode 输入；Unix 严格 UTF-8，Windows 拒绝未配对 UTF-16 代理项。
+    # 保真：不补或取出程序名，不替换非法字符，不再按 shell 拆词，不展开变量、通配符或 @文件。
+    # 失败：编码不满足约束返回 Usage，读取机制故障返回 Failure；本函数不写终端或读业务配置。
+    # 验收：空列表、首项、中文、含空格与空字符串均保真；非法编码的应用调用次数为零。
     _
 }
 
-#
+# 下列 root 除非另行说明均为显式 Any 根；Given 中的处理函数与 Binding 是须供应的完整夹具。
 # Examples
-# Given: root 是 name 为 Auto 的默认帮助根，唯一直接子节点 run 同样保留 Auto、无子命令，绑定完整 run(repository: Str) -> Exit。
+# Given: root 默认 Help，唯一子节点绑定完整 run(repository: Option[FilePath]) -> Exit，无子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "my repo"] })
+# prepare(root, ["bootstrap", "run", "my repo"])
 # ```
-# Expect: 返回 Invoke，同一 run Binding 的 values 仅有 "my repo"；根跳过名称比较，子节点按 Binding.name 匹配；Auto 均保持原值，不调用 invoke，不写终端。
+# Expect: Invoke 捕获 run 和 Some(FilePath("my repo"))；当前不调用 handler，不写终端。
 #
 # Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "--", "--help"] })
+# prepare(root, ["bootstrap", "run"])
 # ```
-# Expect: 返回 Invoke，业务 values 仅有字面字符串 "--help"；不产生 Help。
+# Expect: Invoke 捕获 run 和 None；不会产生缺参 Usage，也不替业务选择当前目录。
 #
 # Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "repo", "--help"] })
+# prepare(root, ["bootstrap", "run", "a", "b"])
 # ```
-# Expect: 返回 Usage；不忽略多余参数、不调用 run，也不写终端。
+# Expect: 多参 Usage；不调用业务，不丢弃 b。
 #
-# Given: 同一 root，根 handler 为 Help。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: [] })
+# prepare(root, ["bootstrap", "run", ""])
 # ```
-# Expect: 返回根 Help，与 values = ["--help"] 的帮助文本完全相同；不调用 run，不写终端。
+# Expect: 空路径 Usage；一个显式空参数不等于缺省 None。
 #
-# Given: 同一 root，根 handler 为 Help。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["--help"] })
+# prepare(root, ["bootstrap", "run", "--", "--help"])
 # ```
-# Expect: 返回根 Help，与空 values 的帮助文本完全相同；不默认选择命令，不调用 run，不写终端。
+# Expect: Invoke 捕获 Some(FilePath("--help"))；不产生帮助，不访问这个路径。
 #
-# Given: root 唯一的 agent 子节点仅含 skill 子节点，两者 handler 均为 Help；skill 仅含无子命令的 train 节点，完整 train(employee: Str, skill: Str) -> Exit 已生成绑定。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["agent", "skill", "train", "reviewer", "rust"] })
+# prepare(root, ["bootstrap", "run", "repo", "--help"])
 # ```
-# Expect: 返回 train 的 Invoke，values 恰为 ["reviewer", "rust"]；路径三段均已消费，没有业务调用。
+# Expect: Usage；不忽略多余参数，不调用业务。
 #
-# Given: 同一命令树。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["agent", "skill", "--help"] })
+# (prepare(root, ["bootstrap"]), prepare(root, ["bootstrap", "--help"]))
 # ```
-# Expect: 返回该组的 Help，含完整前缀 bootstrap agent skill 及 train 签名；不列其他组的命令，不调用业务。
+# Expect: 相同根 Help，前缀均来自已消费的 bootstrap；没有业务调用。
 #
-# Given: 同一命令树。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["agent", "skill"] })
+# prepare(root, [])
 # ```
-# Expect: 返回 skill 的 Help，与该节点单独 --help 的文本相同；不选择 train，不调用业务。
+# Expect: 缺少根名称的 Usage；不显示缺省帮助，不调用 handler。
 #
-# Given: 同一命令树，agent 没有名为 missing 的子命令。
+# Given: named.name 为 Exact("tool")，默认 Help，没有子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["agent", "missing"] })
+# (prepare(named, ["tool"]), prepare(named, ["other"]))
 # ```
-# Expect: 返回 agent 层级的 Usage；缺省 Help 不吞掉未知名称，也不搜索其他分支。
+# Expect: 前者匹配并消费 tool 后返回 Help；后者名称不匹配 Usage，不跳过根名称。
 #
-# Given: root 唯一的 run 子节点自身接受一个 Str，且仅有零参数子命令 subcommand，后者无子命令；函数完整，均已生成绑定。
+# Given: named.name 为 Auto，绑定完整 status() -> Exit，没有子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "subcommand"] })
+# (prepare(named, ["status"]), prepare(named, ["bootstrap"]))
 # ```
-# Expect: 返回 subcommand 的 Invoke，values 为空；不选择 run 的自身动作，不调用任何业务函数。
+# Expect: 前者捕获 status 的零参调用；后者 Usage，根 Auto 同样按 Binding.name 匹配。
 #
-# Given: 同一带自身动作的 run 节点。
+# Given: root 默认 init(repository: Option[FilePath])，三个同签名 init / run / status 子节点，均无子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "--", "subcommand"] })
+# prepare(root, ["/tmp/renamed-bootstrap", "repo"])
 # ```
-# Expect: 返回 run 的 Invoke，values 恰为 ["subcommand"]；-- 同时停止路由与选项识别。
+# Expect: Any 消费完整启动路径；没有子命令名匹配 repo，Invoke 捕获 init(Some(FilePath("repo")))。
 #
-# Given: 同一带自身动作的 run 节点；没有名为 some_arg 的子命令。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "some_arg", "subcommand"] })
+# prepare(root, ["bootstrap", "--", "run"])
 # ```
-# Expect: 返回 run 的多参 Usage；开始自身参数解析后，不再把 subcommand 当作路径。
+# Expect: Invoke 捕获 init(Some(FilePath("run")))，不进入 run 子命令。
 #
-# Given: run 的自身函数接受一个 Str；其 subcommand 子节点也接受一个 Str。
+# Given: root 默认 Help，agent / skill 组为 Help，train(employee: Str, skill: Str) 为完整函数。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "subcommand"] })
+# prepare(root, ["bootstrap", "agent", "skill", "train", "reviewer", "rust"])
 # ```
-# Expect: 返回 subcommand 缺参的 Usage；不回退到 run，不尝试任何业务调用。
+# Expect: 依次消费四个名称；Invoke 仅捕获 train("reviewer", "rust")。
 #
-# Given: root 的前两个子节点都名为 run，均无子命令；first 接受两个 Str，second 接受一个 Str，均已生成绑定。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "repo"] })
+# prepare(root, ["bootstrap", "agent", "skill", "--help"])
 # ```
-# Expect: 选定 first 后返回缺参 Usage；不尝试 second 的可匹配签名，也不调用 first。
+# Expect: Help 的实际路径为 bootstrap agent skill，列出 train 的签名；不调用业务。
 #
-# Given: root 的前两个子节点都名为 run，均无子命令；first、second 都接受一个 Str，均已生成绑定。
+# Given: root 的 run(target: Str) 节点含 subcommand(target: Str) 子节点，所有函数完整。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "repo"] })
+# prepare(root, ["bootstrap", "run", "subcommand"])
 # ```
-# Expect: 返回 first 的 Invoke，values 为 ["repo"]；保持声明顺序，不合并同名子树。
+# Expect: 子节点缺参 Usage；不回退到父 run，也不把 subcommand 重新解释为父参数。
 #
-# Given: root 的直接子列表依次为 Any(first)、Exact("run", second)，两节点均无子命令、各接受一个 Str，绑定完整。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["run", "repo"] })
+# prepare(root, ["bootstrap", "run", "--", "subcommand"])
 # ```
-# Expect: 返回 first 的 Invoke，values 恰为 ["repo"]；Any 消费 run，不优先选择后面的 Exact，也不把 run 传给处理函数。
+# Expect: Invoke 捕获父 run("subcommand")；-- 停止子命令选择。
 #
-# Given: root 的直接子列表依次为 Exact("run", first)、Any(second)，两节点均无子命令、各接受一个 Str，绑定完整。
+# Given: root 的子列表依次为 Any(first)、Exact("run", second)，两者均接受一个 Str、无子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["other", "repo"] })
+# prepare(root, ["bootstrap", "run", "repo"])
 # ```
-# Expect: 返回 second 的 Invoke，values 恰为 ["repo"]；实际消费的 other 成为当前路径，原始 Args 保持不变。
+# Expect: 首个 Any 消费 run，捕获 first("repo")；不优先选择 Exact 节点。
 #
-# Given: root 的 handler 为 Help，唯一直接子节点为 Any，绑定完整零参数函数，子节点无子命令。
+# Given: root 的子列表依次为 Auto(first)、Exact("first", second)；first 接受两个 Str，second 接受一个 Str。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: [] })
+# prepare(root, ["bootstrap", "first", "repo"])
 # ```
-# Expect: 返回根 Help；Any 需要一个输入元素，不能在空输入时自动进入。
+# Expect: 首个节点的缺参 Usage；不尝试 second，不调用 first。
 #
-# Given: 同一默认帮助根与 Any 子节点。
+# Given: root 默认 Help，只有一个 Any 子节点，其下有完整零参 status 子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["--help"] })
+# prepare(root, ["bootstrap", "project-1", "status", "--help"])
 # ```
-# Expect: 返回根 Help；Any 不消费 --help，也不选择子节点的函数。
+# Expect: Help 使用 bootstrap project-1 status；Any 消费的值不被通配标记替换。
 #
-# Given: 同一默认帮助根与 Any 子节点。
+# Given: root 默认 Help，唯一 Any 子节点绑定完整零参函数，无子命令。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["--", "other"] })
+# prepare(root, ["bootstrap", ""])
 # ```
-# Expect: 返回根自身 Help 动作的多余参数 Usage；-- 停止路由，Any 不消费 other。
+# Expect: Any 子节点消费一个空字符串 token 并捕获零参调用；不是空列表，也不是空路径参数。
 #
-# Given: root 仅含一个 Any 子节点，该节点仅含名为 status 的子节点并绑定完整零参数函数；所有自身动作均完整。
+# Given: 同一 root。
 # ```spore
-# prepare(root, Args { program: "bootstrap", values: ["project-1", "status", "--help"] })
+# prepare(root, ["bootstrap", "--", "other"])
 # ```
-# Expect: 返回 status 的 Help，完整路径为 bootstrap project-1 status；不把 Any 或函数声明名当作实际消费的词。
-#
-# Given: root 的自身函数是完整的 start() -> Exit，没有子命令。
-# ```spore
-# prepare(root, Args { program: "bootstrap", values: [] })
-# ```
-# Expect: 返回 start 的 Invoke，values 为空；设置根函数后不再把空输入直接变成 Help。
-#
-# Given: 同一自定义根。
-# ```spore
-# prepare(root, Args { program: "bootstrap", values: ["--help"] })
-# ```
-# Expect: 返回根 Help，前缀为 bootstrap；不调用 start，也不要求输入 start 这个根名称。
-#
-# Given: root 的自身函数接受一个 Str，没有子命令。
-# ```spore
-# prepare(root, Args { program: "bootstrap", values: [] })
-# ```
-# Expect: 返回根函数缺参的 Usage；不以缺省帮助掩盖自定义函数的参数要求。
-#
-# Given: root.name 为 Any，自身绑定完整 init() -> Exit，直接子列表为三个零参数 init / run / status。
-# ```spore
-# prepare(root, Args { program: "/tmp/renamed-bootstrap", values: [] })
-# ```
-# Expect: 返回根 init 的 Invoke，values 为空；不要求启动名为 bootstrap 或 init；prepare 本身不打开交互或创建全局目录。
-#
-# Given: root 的 handler 为 Help，subcommands 为空。
-# ```spore
-# prepare(root, Args { program: "bootstrap", values: ["--", "--help"] })
-# ```
-# Expect: 返回多余字面参数的 Usage；转义后的 --help 不再触发帮助。
-pub fn prepare(root: Command, args: Args) -> Decision {
+# Expect: 根 Help 动作的多余参数 Usage；Any 子节点不截获 -- 或 other。
+pub fn prepare(root: Command, args: List[Str]) -> Decision {
     # hole: cli.prepare
-    # 输入：compile.bindings 生成的有效根 Command 和一次已解码 Args；name 保留 Exact / Any / Auto，业务参数均为必填 Str。
-    # 产出：合法调用返回同一 Binding 与按声明顺序排列的原值；帮助返回 Help；输入不匹配返回 Usage。
-    # 根：cli 已指定根节点，从 args.values 开始，不匹配或消费 root.name；根 Any 不消费一个业务输入。
-    # 根：Exact / Any / Auto 都跳过 matches_name，包括无函数的 Auto 根；args.program 只作为输出的调用前缀。
-    # 路由顺序一：当前剩余输入恰为 ["--help"] 时返回本节点 Help，不调用任何 handler。
-    # 路由顺序二：当前剩余输入以 -- 开头时，移除一次标记，选定本节点自身动作，其余全部按字面值处理。
-    # 路由顺序三：有剩余输入且首元素不以 - 开头时，按 subcommands 原顺序调用 matches_name，取首个返回 true 的节点。
-    # 路由顺序三：Exact 比较 value，Auto 比较 Binding.name，Any 接受该元素；没有比声明顺序更高的名称模式优先级。
-    # 路由顺序三：选定后消费一个原始元素、记录其实际值为路径，并在子节点重复规则。
-    # 路由顺序四：无子节点命中或输入为空时，选定当前节点自身动作；之后不再寻找子命令。
-    # 提交：名称命中即选定；不按参数元数试探，不合并子树，不因后续错误回退到兄弟节点或父动作。
-    # 自身动作：Handler.Function 按 Binding.parameters 核对元数；零参数可以调用，缺参或多参为 Usage。
-    # 缺省动作：Handler.Help 只接受空参数（包括移除单独 -- 后为空）；返回与本节点 --help 相同的 Help。
-    # 缺省动作：有剩余参数时返回当前节点的 Usage，不吞掉未知名称或多余字面参数；空子列表本身合法。
-    # 帮助：显示当前自身动作的参数名、Str 和退出规则，以及按声明顺序列出的全部直接子命令与自身签名。
-    # 帮助：Exact 子项显示 value，Auto 子项显示 Binding.name，Any 子项标示为通配项；缺省动作标示为显示帮助。
-    # 帮助：重叠匹配项保持原顺序并注明首个优先，不伪装成均可到达的路由。
-    # 用法：保留 program 与实际消费的完整命令路径，Any 的已匹配词也须保留；不以 Binding.name 或 Any 的显示标记替换它。
-    # 名称保真：Any 消费恰好一个元素，空字符串或含空白元素也不拆分；该词只进入路径，不自动增加处理函数的业务参数。
-    # 字面值：-- 在开始自身参数解析前只识别一次；其后 --help、--、-x 都保留原值，不再生成帮助或路由。
-    # 错误：未进入字面值模式时，业务参数中以 - 开头的值（包括混用的 --help 或中途出现的 --）返回 Usage。
-    # 执行：进入子命令不会调用父动作；参数阶段失败也不能触发回调。每次 dispatch 最多调用选定业务函数一次。
-    # 约束：不读取目标文件，不执行 invoke，不根据参数数量猜命令，不补默认值，不静默忽略参数。
-    # 验收：README.md 的输入矩阵全部成立；帮助和错误只产生数据，不能触发业务或终端输出。
+    # 输入：compile.bindings 生成的有效 Command 与从其名称开始的已解码列表；不假设另有 program 字段。
+    # 进入节点：空列表为缺少名称 Usage；否则 matches_name 比较首项，不匹配为 Usage，匹配后消费恰好一项。
+    # 统一性：根、子节点和独立复用的子树都走同一进入规则；没有根名称豁免，不补任何名称 token。
+    # 路径：每次成功进入追加实际消费的原 token；名称只进入路径，不进入处理函数的业务实参。
+    # 路由一：进入后余项恰为 ["--help"] 时返回当前 Help，不运行 bind 或 handler。
+    # 路由二：余项以 -- 开头时，移除这一次标记，停止路由及选项识别，后续全部按字面值绑定当前动作。
+    # 路由三：否则首个余项存在且不以 - 开头，按子列表顺序比较名称，首个命中者进入同一匹配消费步骤。
+    # 路由三：Exact / Any / Auto 无额外优先级；Any 的比较接受任意一个字符串，不拆分或增加业务实参。
+    # 路由四：无子节点命中或余项为空时选择当前自身动作；开始参数绑定后不再寻找子命令。
+    # 提交：名称选中后不按元数、类型或后续路径回退，不合并同名子树，也不执行父动作。
+    # 绑定：Function 调用一次 binding.bind，以声明顺序检查必填 Str / FilePath 及至多一个末尾 Option[FilePath]。
+    # 绑定：缺省可选路径得到 None；一个合法路径得到 Some(FilePath)，空文本 / NUL、缺必填或多参均 Usage。
+    # 绑定：ArgumentBinding.Ready 的完整闭包进入 Decision.Invoke；Usage 附加当前实际路径后返回，不调用闭包。
+    # 缺省：Help 只接受空参数，返回与当前 --help 相同的帮助；剩余任何字面参数都为 Usage。
+    # 控制：--help / -- 只在已选节点的余项中解释；未转义、混入业务参数的 - 前缀 token 均 Usage。
+    # 帮助：自身及直接子节点的签名由同一 Binding.parameters 产生，必填用 <name>，可选目录用 [name]，同时标明类型。
+    # 帮助：Exact 显示 value，Auto 显示 Binding.name，Any 子项标示通配；已选路径始终保留实际消费值。
+    # 帮助：保留兄弟顺序并注明首个匹配优先；根名称不匹配时报告实际输入与期望名称，不虚构已消费路径。
+    # 约束：纯数据处理；不读终端、文件或环境，不执行 invoke，不取 basename，不裁剪或重写输入。
+    # 验收：README.md 矩阵成立；构造、帮助、路由和解码失败均为零业务调用，合法分派只捕获一次调用。
     _
 }
 
-#
 # Examples
-# Given: 输出流先报告短写两个字节，之后接受剩余字节并成功刷新。
+# Given: 输出流先报告短写两个字节，随后接受剩余字节并成功刷新。
 # ```spore
 # write_text(Channel.Stdout {}, "ready\n")
 # ```
-# Expect: 返回 true；stdout 恰得到一次 ready 和一个换行，完成刷新；stderr 为空，不重复已写前缀。
+# Expect: true；恰写出一次 ready 与换行，不重放前缀、不切换流。
 #
-# Given: 文本字节已写完，但 stdout 的刷新报告永久失败。
+# Given: 文本字节已写完，但 stdout 刷新报告永久失败。
 # ```spore
 # write_text(Channel.Stdout {}, "ready\n")
 # ```
-# Expect: 返回 false；不把已经写出的文本重复发送，也不切换输出流补报。
+# Expect: false；不重复文本，不把写入成功当成刷新成功。
 pub fn write_text(channel: Channel, text: Str) -> Bool {
     # hole: host.write
-    # 输入：明确的 stdout / stderr 与完整文本；仅写指定流，不增加换行或改写内容。
-    # 产出：全部 UTF-8 字节写入并刷新到宿主流后返回 true；允许宿主流再连接到终端、文件或管道。
-    # 约束：处理短写；可继续的中断只续写未完成部分；成功不承诺文件持久化或终端已显示。
-    # 失败：永久写入或刷新故障返回 false；不在另一个流无限补报，不自动重复整段文本。已写前缀不能回滚。
-    # 验收：stdout / stderr 分离，空文本和多字节文本保真；短写不重字节，失败使 emit 返回 Failure。
+    # 输入：明确的 stdout / stderr 与完整 Unicode 文本；本函数不自动添加换行。
+    # 产出：按 UTF-8 完整写入并成功刷新才返回 true。
+    # 条件：短写按实际确认字节数继续；不能从头重放已写前缀，不混用两个流。
+    # 失败：写入、无进展或刷新永久失败返回 false，不自动重试业务或向另一流追加诊断。
+    # 验收：完整写入、短写、刷新失败及永久失败分别有真实输出和结果证据。
     _
 }
