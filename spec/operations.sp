@@ -495,3 +495,44 @@ pub fn write_text(channel: Channel, text: Str) -> Bool {
     # 验收：完整写入、短写、刷新失败及永久失败分别有真实输出和结果证据。
     _
 }
+
+pub type TextInput {
+    cases {
+        pub case Ready { pub field value: Str; }
+        pub case End;
+        pub case Failure { pub field message: Str; }
+    }
+}
+
+# Examples
+# Given: stderr 写入与刷新正常，交互终端实际收到空行。
+# ```spore
+# prompt("方式", "2")
+# ```
+# Expect: stderr 显示 方式 [2]: ，返回 TextInput.Ready("2")；不自行解释选项或执行业务。
+#
+# Given: 同一输出条件，终端在收到任何字符前 EOF。
+# ```spore
+# prompt("方式", "2")
+# ```
+# Expect: 返回 TextInput.End；EOF 不采用默认值，也不重新提示。
+pub fn prompt(label: Str, default: Str) -> TextInput {
+    if write_text(Channel.Stderr {}, label),
+       write_text(Channel.Stderr {}, " ["),
+       write_text(Channel.Stderr {}, default),
+       write_text(Channel.Stderr {}, "]: ") {
+        # hole: host.terminal
+        # 只读交互终端，不回退到重定向 stdin；等待完整一行或 EOF，不读取业务配置。
+        # 一行移除终止换行后按严格 UTF-8 解码为 Ready；保留其他字符和空白。
+        # 换行前遇到 EOF 为 End，丢弃未提交的残片；取消、无终端、坏编码或读取故障为 Failure。
+        let input: TextInput = ?read_terminal_line();
+        match input {
+            TextInput.Ready { value: let text } =>
+                TextInput.Ready { value: if text_equal(text, "") { default } else { text } },
+            _ => input
+        }
+    } else {
+        # 短路后不再输出或读取；已经写出的前缀不重放。
+        TextInput.Failure { message: "Cannot write prompt" }
+    }
+}

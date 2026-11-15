@@ -2,7 +2,7 @@
 
 这是规约稿，尚未完成新版类型、效果、生成器和真实进程验证。
 [platform.sp](platform.sp) 定义宿主入口、分派和退出；
-[operations.sp](operations.sp) 定义命令、参数、名称匹配及三个边界契约。
+[operations.sp](operations.sp) 定义命令、参数、名称匹配、终端提示及边界契约。
 本目录未接入现有 `spore.toml`；旧 `src/platform_contract.sp`、I/O 模块和
 Rust host 是另外一套实现，不能用其测试结果证明本稿已实现。
 
@@ -10,7 +10,7 @@ Rust host 是另外一套实现，不能用其测试结果证明本稿已实现�
 
 采用 MLTT 基线：`Type` / `Prop`、`type` / `case`、显式 `let` 模式绑定。
 不引入 CuTT 维度、路径、`law` 或占位公设。规约可以用组合正文或完整的
-输入、结果、效果、失败契约定义函数；表达式 `_` 表示实现义务仍未满足。
+输入、结果、效果、失败契约定义函数；表达式 `_` 或 `?name` 表示实现义务仍未满足。
 可读性依靠每层只说明自己的职责，不通过遗漏分支或未定义的函数名获得。
 
 列表字面量采用 Spore Spec 的 `G-list-literals`、`S-list-literals` 与
@@ -77,6 +77,12 @@ status 无论省略还是提供路径，都可在没有交互终端时查询。�
 仅补未完成阶段，终态只报告已有结果。重启创建新轮次，保留历史费用，
 分别复用或更换 seed；续跑恢复完整随机状态，同 seed 不保证模型输出相同。
 具体 Agent、上层调度、存储和 Ctrl+C 收尾属于应用契约。
+
+通用交互由 platform 的 `prompt(label, default) -> TextInput` 提供：提示写 stderr，
+只读取交互终端的一行，只有实际收到空行才采用默认值。Ready 保留其他文本，
+End 表示完整行提交前的 EOF（包括未提交的残片），Failure 保留输出、取消、终端或读取错误；
+不回退到重定向 stdin，也不把 EOF 当成确认。应用解释菜单、决定非法值是否重试，
+并将交互失败映射为自己的 Problem；platform 不依赖应用结果类型。
 
 ## 节点名称与统一消费
 
@@ -238,6 +244,7 @@ Command 不存储本次参数；子节点不读取宿主 argv，固定 ABI 不�
 | `text.equal` | operations.sp / text_equal | 两个 Str → 精确 Bool；纯、终止，不用命题等同冒充布尔判定 |
 | `cli.prepare` | operations.sp / prepare | 有效 Command、完整列表 → 已解码调用闭包、帮助或用法诊断；统一消费与下方矩阵 |
 | `host.write` | operations.sp / write_text | 指定流及文本 → 完整写入并刷新结果；短写和失败证据 |
+| `host.terminal` | operations.sp / prompt | 交互终端 → 一行文本、EOF 或失败；空行默认、关闭、取消及无终端的真实证据 |
 | `compile.bindings` | 下文 | 函数声明与静态命令树 → 同源名称、参数元数据及 bind / invoke 提供者 |
 | `compile.assembly` | 下文 | 平台、应用、标准 List / os → 同一类型身份、可见符号和固定宿主入口 |
 | `runtime.effects` | 下文 | 纯数据处理与运行代码 → 不污染证明求值的效果隔离 |
@@ -275,7 +282,7 @@ prepare 和 bind 只处理数据；捕获一个调用不等于执行它。实现
 
 **validation.evidence**：分别记录语法、类型、效果、生成绑定与真实进程
 证据。旧 host 测试、旧编译器成功或语法识别不能关闭新版实现义务。
-未解 `_`、缺少 bind / invoke、未完成导入或效果隔离都继续 pending。
+未解 `_` / `?name`、缺少 bind / invoke、未完成导入或效果隔离都继续 pending。
 验收必须观察实际选中的函数及参数，不能只检查退出码或解析器自报成功。
 
 ## Examples 与验收矩阵
@@ -347,4 +354,7 @@ I/O 案例还观察 argv、stdout、stderr、刷新和业务调用。语法识�
 | 函数改名、参数名／角色／值类型／可选性变化 | Auto 名称、命名选项、帮助、解码及包装调用从同一声明同步；Exact 别名保持显式值 |
 | 单命令 main 的零参、必填或可选路径签名 | 自动根明确为 Any，消费启动名称后按同一规则绑定并调用一次 |
 | Unix 非 UTF-8 argv；宿主传空 argv | 前者在读取阶段 Usage，后者保留 [] 并在节点入口 Usage；不合成程序名 |
+| prompt 收到空行／非空完整行／换行前 EOF | 分别返回 Ready(default)／Ready(原文本)／End；未提交残片不确认，不自行重试或解释菜单 |
+| prompt 无交互终端、读取失败、取消或非法 UTF-8 | Failure；不从重定向 stdin 读取，不采用默认值 |
+| prompt 的提示写入或刷新失败 | Failure；不读取终端，不重放已写前缀，不调用业务 |
 | 从纯证明调用宿主操作；进程异常终止 | 前者静态拒绝，后者不产生成功或已清理证据 |
