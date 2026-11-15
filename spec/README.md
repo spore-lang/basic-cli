@@ -15,14 +15,15 @@ Rust host 是另外一套实现，不能用其测试结果证明本稿已实现�
 
 列表字面量采用 Spore Spec 的 `G-list-literals`、`S-list-literals` 与
 `D-list-literals`，使用同一个固定标准库 `List`，不在平台复制定义。
-本稿在 operations.sp 显式选定并导出 `Option` 的 None / Some 定义及
-`FilePath { text: Str }`；应用使用同一名义类型。它们不是编译器内建，
+本稿在 operations.sp 显式选定并导出 `Option` 的 None / Some 定义、
+`FilePath { text: Str }` 及 `Positional[T]` / `Named[T]`；应用使用同一名义类型。它们不是编译器内建，
 也不能由仅仅同名的 Lab 类型替换。FilePath 是路径文本，不是存在性、
 目录类型或访问权限的证明。
 
-本轮支持有限的静态命令树、必填 `Str` / `FilePath` 位置参数，以及至多
-一个末尾 `Option[FilePath]` 位置参数。短选项、关键字参数、函数参数
-默认值、自定义 decoder、环境变量输入、动态树及动态注册尚未定义。
+本轮支持有限的静态命令树、`Positional[T]` 位置参数与 `Named[T]` 命名选项。
+内层 T 为 `Str`、`FilePath` 或二者的 `Option`；可选位置参数至多一个，
+且必须是位置参数子序列的最后一项。短选项、无值开关、`--name=value`、
+函数参数默认值、自定义 decoder、环境变量输入、动态树及动态注册尚未定义。
 Unicode 输入域外的原生路径明确拒绝，不用替换字符有损转换。
 
 ## Command.run 与应用命令
@@ -53,14 +54,14 @@ fn main(args: List[Str]) -> Exit {
 
 | 函数签名 | 输入、效果与结果契约 |
 | --- | --- |
-| `init(repository: Option[FilePath]) -> Exit` | 确定项目目录，读取并校验项目输入，确认初始化；成功时保存首轮 Ready，输出 run_id / seed / Pending 并退出 0；取消、重复初始化或失败退出 1，不覆盖已有记录，不执行或验证 |
-| `run(repository: Option[FilePath]) -> Exit` | 确定目录，每次确认继续／原种子重启／新种子重启；取得独占权后只推进一轮并保存、收尾、报告；通过退出 0，拒绝或失败退出 1，安全主动中断可退出 0 但显示 Pending；不自动调度下一轮 |
-| `status(repository: Option[FilePath]) -> Exit` | 确定目录，读取一致快照并输出；查询成功退出 0，即使本轮 Rejected；失败退出 1，不执行、验证或恢复 |
+| `init(repository: Positional[Option[FilePath]]) -> Exit` | 取 repository.value 确定项目目录，读取并校验项目输入，确认初始化；成功时保存首轮 Ready，输出 run_id / seed / Pending 并退出 0；取消、重复初始化或失败退出 1，不覆盖已有记录，不执行或验证 |
+| `run(repository: Positional[Option[FilePath]]) -> Exit` | 取 repository.value 确定目录，每次确认继续／原种子重启／新种子重启；取得独占权后只推进一轮并保存、收尾、报告；通过退出 0，拒绝或失败退出 1，安全主动中断可退出 0 但显示 Pending；不自动调度下一轮 |
+| `status(repository: Positional[Option[FilePath]]) -> Exit` | 取 repository.value 确定目录，读取一致快照并输出；查询成功退出 0，即使本轮 Rejected；失败退出 1，不执行、验证或恢复 |
 
-三者的 None 都进入以当前目录为默认值的目录选择；Some 直接校验显式
+三者解包后的 None 都进入以当前目录为默认值的目录选择；Some 直接校验显式
 目录，不重复提示目录，也不在坏路径时回退。相对路径基于命令开始时的
 当前目录。显式目录不免除 init 的初始化确认或 run 的方式确认；
-status(Some) 可在没有交互终端时查询。输入关闭、取消或缺少终端不自动
+status(Positional(Some)) 可在没有交互终端时查询。输入关闭、取消或缺少终端不自动
 开始 init / run。run 的回车确认 Continue，未输入不等于按过回车。
 
 项目 bootstrap.toml 引用 Contract、Control、Executor；项目记录属于
@@ -104,11 +105,11 @@ Auto 根必须匹配处理函数名。具名子树作为独立入口时仍需输
 节点已经匹配并消费自身名称后，依次执行：
 
 1. 余项恰为 ["--help"]：产生当前帮助，不绑定参数，不调用业务。
-2. 余项以 `--` 开头：移除一次标记，选定当前自身动作；后续 token
-   全部是字面业务值，停止子命令路由与控制标记识别。
+2. 余项以独立 `--` 开头：选定当前自身动作，停止子命令路由；保留
+   原始余项，交由当前动作的参数扫描消费标记并进入字面模式。
 3. 否则，首个余项存在且不以 `-` 开头：按 subcommands 声明顺序匹配，
    选中第一个命中的节点，进入同一匹配并消费名称的步骤。
-4. 没有子节点命中或余项为空：选择当前自身动作，开始位置参数绑定。
+4. 没有子节点命中或余项为空：选择当前自身动作，开始参数绑定。
 
 名称匹配本身只比较值；`--help` / `--` 只在已选节点的余项中具有控制
 含义。父节点会先处理这些标记，不把它们交给通配子节点抢占。
@@ -119,37 +120,77 @@ Exact / Any / Auto 没有额外优先级。同名节点合法、首个优先，�
 或其他兄弟节点。进入子命令不先执行父 handler。开始自身参数绑定后
 不再寻找子命令；拼错的命令词可能成为当前默认动作的位置参数。
 
-Handler.Help 只接受空业务参数，输出与当前 `--help` 相同的帮助。
-多余字面参数为 Usage。未进入字面模式时，混入业务参数的 `-` 前缀值、
-中途出现的 `--` 或混用的 `--help` 均为 Usage。子命令路径必须先于参数。
+Handler.Help 只接受空余项或恰为 ["--"]，输出与当前 `--help` 相同的帮助。
+其余输入为 Usage。Function 的完整余项交给 bind；`--` 可在参数中途
+开启字面模式，混用且尚未转义的 `--help` 为 Usage。子命令路径必须先于参数，
+不支持把父选项放在子命令名之前，也不继承父选项。
 帮助列出自身和全部直接子命令的签名，保留顺序并注明首个匹配优先；
 已选路径使用实际 token。根名不匹配时诊断实际输入和期望名称，不虚构
 已经匹配的路径。帮助及诊断本身都不执行业务。
 
 ## 参数类型、绑定与省略
 
-所有参数的绑定方式在本轮均为**位置绑定**。参数名只参与帮助，
-`repository: Option[FilePath]` 不会自动接受 `--repository repo`。
-类型、绑定方式、能否省略是不同维度；本稿只对 CLI 规定下表的省略规则，
-普通 Spore 函数调用仍需显式传入 None 或 Some。
+`Positional[T]` 和 `Named[T]` 是只含 `value: T` 的普通记录类型。
+外层角色决定如何找到值，内层 Option 决定是否允许省略，基础类型决定解码。
+普通 Spore 调用必须显式构造完整包装值，不引入关键字调用或隐式解包。
+以下 T 仅指 `Str` 或 `FilePath`：
 
-| 声明类型 | ParameterKind | 输入与解码 | 帮助 |
+| 声明类型 | Parameter.role / optional | 输入与包装 | 帮助 |
 | --- | --- | --- | --- |
-| `Str` | Text | 必须消费一个业务 token，原值传递，允许空字符串 | `<name>: Str` |
-| `FilePath` | Path | 必须消费一个非空、无 NUL 的 token，构造 FilePath | `<name>: FilePath` |
-| `Option[FilePath]` | OptionalPath | 只允许最后一个参数；没有 token 为 None，一个合法路径为 Some(FilePath) | `[name]: FilePath` |
+| `Positional[T]` | Positional / false | 按位置取一个值，构造 Positional(value) | `<name>: T` |
+| `Positional[Option[T]]` | Positional / true | 省略为 Positional(None)，提供值为 Positional(Some(value)) | `[name]: T` |
+| `Named[T]` | Named / false | 必须提供 `--name value`，构造 Named(value) | `--name <value>: T` |
+| `Named[Option[T]]` | Named / true | 省略为 Named(None)，提供值为 Named(Some(value)) | `[--name <value>]: T` |
 
-必填参数之后至多有一个 OptionalPath。可选位置后再出现必填位置、
-多个可选位置、其他未支持类型或参数默认值都拒绝装配。多余 token、
-缺少必填值、显式空路径或路径含 NUL 均 Usage，且零业务调用。
+Parameter.kind 对 Str 为 Text、对 FilePath 为 Path；表中的包装写法是
+说明性缩写，实际源码使用相应记录和 case 构造式。必填命名选项仍然必填；
+可选位置参数仍然按位置消费，不会因为 Option 而生成命名选项。
+例如这个完整处理函数只输出所给路径文本，不访问文件：
+
+```spore
+fn show_output(source: Positional[FilePath], output: Named[FilePath]) -> Exit {
+    emit(Channel.Stdout {}, output.value.text, Exit.Success {})
+}
+```
+
+绑定为子命令后，`tool show_output src --output dist` 和
+`tool show_output --output dist src` 都把 src / dist 分别包装为
+Positional[FilePath] / Named[FilePath]，再按形参声明顺序调用一次。
+处理函数通过 `.value` 进入业务；调用时不会把 Named 解包成 FilePath。
+
+命名选项由形参名精确生成 `--name`，保留大小写和下划线，不改为连字符。
+Named 形参必须有非匿名的唯一名称；`help` 保留给框架，拒绝该命名形参。
+位置和命名形参可以交错声明；位置值仅按 Positional 子序列分配。
+可选位置后再出现必填位置、多个可选位置、裸 Str / FilePath / Option、
+嵌套角色包装、其他未支持类型或参数默认值都拒绝装配。
+
+选定节点后，bind 从左到右扫描原始余项，初始不在字面模式：
+
+1. 独立 `--` 开启字面模式并被消费；此后每个 token 都是位置值，
+   包括后续 `--` 和 `--help`，不再识别选项或子命令。
+2. 模式外，精确的 `--name` 必须匹配当前节点的 Named 形参，且只出现一次。
+   它消费紧接的一个值，该值不能以 `-` 开头；没有下一项或下一项是
+   `--`、`--help`、其他选项或其他 `-` 前缀文本都为缺值 Usage。
+3. 模式外，其余非 `-` 前缀 token 作为位置值；未知选项、`--name=value`、
+   混用的 `--help` 及其他 `-` 前缀值均为 Usage。
+
+扫描后核对必填项和位置元数，再解码并构造内层 Option 与外层角色包装。
+Named[Option[T]] 可以完全省略，但出现 `--name` 后必须给值。
+所有失败都不产生可调用的 Ready，不调用业务。首版命名选项不支持
+以 `-` 开头的值；`--` 只为后续位置值转义，不能替命名选项转义。
+例如 `tool show_output --output dist -- --help` 把 --help 作为 source；
+`tool show_output src --output --help` 为缺值 Usage。
+
+Str 原值传递且允许空字符串；FilePath 拒绝空文本或 NUL，再构造路径值。
 一个显式空字符串不是缺省；解码不读取文件、不解析真实路径、不补 cwd。
 目录是否存在、符号链接身份与权限由应用校验。引号由启动器处理，
 参数中的真实空白和引号原样保留，不再次拆词或展开变量／通配符／@文件。
 
 Binding 同时保存函数名、List[Parameter] 与生成的 bind 函数。
-`bind: List[Str] -> ArgumentBinding` 的完整契约是：按同一函数声明核对
-元数及上述类型，失败返回 Usage；成功返回 Ready，携带一个捕获了原函数
-及已解码实参的零参 invoke 闭包。创建闭包不调用原函数，bind 不做 I/O。
+`bind: List[Str] -> ArgumentBinding` 接收尚未删除 `--` 的完整余项，按
+同一函数声明扫描、核对和解码，失败返回 Usage；成功返回 Ready，携带
+捕获原函数及完整包装实参的零参 invoke 闭包。实参按原形参顺序排列，
+不受命名选项的输入顺序影响。创建闭包不调用原函数，bind 不做 I/O。
 `prepare` 把它装入 Decision.Invoke；`dispatch` 才调用一次 invoke。
 帮助、参数元数据和解码器必须从同一声明生成，不能各维护一套规则。
 
@@ -191,7 +232,7 @@ Command 不存储本次参数；子节点不读取宿主 argv，固定 ABI 不�
 
 **compile.bindings**：只适配本平台 Command 的静态 `handler: f`，不劫持
 同名用户类型，不为任意函数值增加反射。解析同一完整具名、非泛型函数，
-要求返回 Exit，参数满足本稿位置参数规则。生成 Binding.name、parameters
+要求返回 Exit，参数满足本稿角色、类型及省略规则。生成 Binding.name、parameters
 及完整 bind / invoke，省略 handler 则为 Help。Exact / Any / Auto 原值
 保留，所有层级的 Auto 都须有函数声明名；Help + Auto 始终拒绝。
 检查全部静态子树有限、无环，显式及自动名称有效；被遮蔽节点仍须检查。
@@ -199,7 +240,7 @@ Command 不存储本次参数；子节点不读取宿主 argv，固定 ABI 不�
 规约可以保留明确契约的实现义务，但未完成函数或下层依赖阻止生成可运行产物。
 
 **compile.assembly**：供应同一个标准 List 及 Empty / Item 构造器，完成
-字面量展开与类型推断。固定本稿 Option、FilePath、Command 等类型的身份，
+字面量展开与类型推断。固定本稿 Option、FilePath、Positional、Named、Command 等类型的身份，
 应用不能用同名类型绕过签名检查；跨模块构造和匹配的分支均显式标为 pub case。绑定 text_equal 的精确布尔判定；语言中的 `==` 仍产生命题。按公开
 成员和实际模块边界解析符号，连接 Command.run、dispatch 和 main_for_host。
 方法取值不执行正文，调用使用传入的原列表；两种入口形式都遵守统一消费。
@@ -238,16 +279,29 @@ I/O 案例还观察 argv、stdout、stderr、刷新和业务调用。语法识�
 | 输入或边界 | 必须观察到的行为 |
 | --- | --- |
 | `[]` | 缺少根名称 Usage，退出 2；不进入默认 init，不显示缺省帮助 |
-| `bootstrap`；`bootstrap init` | 都只调用 init(None) 一次；根和显式 init 各消费自己的名称 |
-| `bootstrap repo`；`bootstrap init repo` | 都只调用 init(Some(FilePath("repo")))；根默认参数不被多消费 |
-| `bootstrap run`；`bootstrap status` | 只调用对应函数并传 None，不先调用 init |
-| `bootstrap run repo`；`bootstrap status repo` | 对应函数收到 Some(FilePath("repo"))；不提示目录选择 |
+| `bootstrap`；`bootstrap init` | 都只调用 init(Positional(None)) 一次；根和显式 init 各消费自己的名称 |
+| `bootstrap repo`；`bootstrap init repo` | 都只调用 init(Positional(Some(FilePath("repo"))))；根默认参数不被多消费 |
+| `bootstrap run`；`bootstrap status` | 只调用对应函数并传 Positional(None)，不先调用 init |
+| `bootstrap run repo`；`bootstrap status repo` | 对应函数收到 Positional(Some(FilePath("repo")))；不提示目录选择 |
 | 任一命令两个目录值；显式空路径或 NUL | Usage，业务调用为零；空参数不能变成 None |
 | `bootstrap --help`；`bootstrap run --help` | 对应帮助含 [repository]: FilePath；不交互、不创建项目或全局记录 |
 | `bootstrap -- run` | 根 init 收到目录 run，不进入子命令 |
 | `bootstrap run -- --help`；`bootstrap run -- -x` | run 收到相应字面路径；不显示帮助、不当成关键字选项 |
-| `bootstrap run repo --help`；`bootstrap run repo --` | Usage，不忽略多余标记，不调用业务 |
-| `bootstrap run --repository repo` | 未支持的关键字选项 Usage；不从参数名猜绑定方式 |
+| `bootstrap run repo --help` | 混用框架帮助 Usage，不调用业务 |
+| `bootstrap run repo --` | 末尾标记不增加位置值，捕获与 run repo 相同的包装参数 |
+| `bootstrap run --repository repo` | 未知选项 Usage；Positional 不从参数名产生选项 |
+| build(source: Positional[FilePath], output: Named[FilePath])：`tool build src --output dist`；`tool build --output dist src` | 两者均捕获 Positional(FilePath("src"))、Named(FilePath("dist"))，按声明顺序调用 |
+| 同一 build：`tool build --output dist -- --help` | source 的内层路径为 --help；命名选项先绑定，标记后全部为位置值 |
+| 同一 build：`tool build src`；`tool build src --output`；`tool build src --output --help` | 必填选项缺失或缺值 Usage，业务调用为零 |
+| 同一 build：重复 --output，即使值相同；未知 --other；--output=dist | Usage，不覆盖、不合并、不猜测选项名 |
+| 同一 build：`tool build -- src --output dist` | -- 后三个位置值，Usage；不恢复选项识别 |
+| 同一 build：--output 后为空串、含 NUL 或 - 前缀文本 | 前两者路径解码 Usage，后者缺值 Usage；不能通过 -- 为命名值转义 |
+| inspect(label: Named[Option[Str]], source: Positional[Option[FilePath]])：`tool inspect` | 捕获 Named(None)、Positional(None) |
+| 同一 inspect：`tool inspect src --label ""`；`tool inspect src --label` | 前者捕获 Named(Some(""))、Positional(Some(FilePath("src")))，后者缺值 Usage |
+| 同一 inspect：`tool inspect --help` | 帮助含 [--label <value>]: Str 与 [source]: FilePath，保留声明顺序，零绑定和业务调用 |
+| output_dir: Named[FilePath]；输入 --output_dir dist / --output-dir dist | 前者匹配，后者未知选项；不改写形参名 |
+| 多个 Named 形参、与 Positional 交错声明、命名选项倒序输入 | 按名称分配命名值、按位置子序列分配位置值，invoke 始终使用完整声明顺序 |
+| Positional[Option[Str]]：省略 / 显式空串；Named[Str]：缺选项 / 显式空串 | 前者为 Positional(None) / Positional(Some(""))；后者 Usage / Named("") |
 | 显式目录有效但 run 菜单未确认、EOF 或无终端 | 平台可已分派，应用仍不得取得运行权或生成 seed |
 | 默认 Any / Help 根：`tool`；`tool --help`；`tool --` | 相同根帮助，退出 0，无业务调用 |
 | 默认 Any / Help 根：`tool missing`；`tool -- --help` | 当前节点 Usage；帮助动作不吞业务参数 |
@@ -255,17 +309,17 @@ I/O 案例还观察 argv、stdout、stderr、刷新和业务调用。语法识�
 | Exact("tool") 根：`tool`；`other` | 前者进入根动作，后者名称不匹配 Usage；没有根名称豁免 |
 | Auto / start 根：`start`；`tool` | 前者调用 start，后者 Usage；Auto 在根同样读取声明名 |
 | Exact("run") 子树独立调用 ["run", "repo"]；["repo"] | 前者匹配并消费 run，后者名称不匹配；复用不跳过名称 |
-| `tool agent skill train reviewer rust` | 消费全部四段名称，只把 reviewer / rust 交给完整 train(Str, Str) 夹具 |
+| `tool agent skill train reviewer rust` | 消费全部四段名称，只把 Positional("reviewer") / Positional("rust") 交给完整 train(Positional[Str], Positional[Str]) 夹具 |
 | `tool agent skill --help`；组自身没有 handler | 显示该组及直接子命令签名，使用实际消费的完整路径 |
-| 父 run(Str) 含 subcommand(Str)：`tool run subcommand` | 子节点缺参 Usage，不回退父函数 |
-| 同一夹具：`tool run -- subcommand` | 只调用父 run，传字面 subcommand |
+| 父 run(Positional[Str]) 含 subcommand(Positional[Str])：`tool run subcommand` | 子节点缺参 Usage，不回退父函数 |
+| 同一夹具：`tool run -- subcommand` | 只调用父 run，传 Positional("subcommand") |
 | 同一夹具：`tool run some_arg subcommand` | 父函数多参 Usage，不在参数中途路由 |
 | 子列表 Any(first)、Exact("run", second)：`tool run repo` | 首个 Any 消费 run，只选择 first；交换声明顺序则选择 Exact |
 | 子列表 Auto(first)、Exact("first", second)，首个缺参 | 首个节点的 Usage，不试探后面的元数或合并子树 |
 | Any 子节点无剩余 token；余项为 --help 或 -- | 父节点处理自身动作或控制标记，Any 不在空输入时进入、不抢控制标记 |
 | Any 子节点下含 status：`tool project-1 status --help` | 路径为 tool project-1 status，不用 Any 或声明名替换 project-1 |
 | Any 子节点绑定零参函数：输入 ["tool", ""] | 消费空字符串这一项，调用零参函数；不同于空路径业务参数的解码错误 |
-| 必填 Str 夹具收到空字符串；路径夹具收到含空格或中文值 | Str 原值接受；非空路径原值包装，不裁剪、不拆词、不读文件 |
+| 必填 Positional[Str] 夹具收到空字符串；路径夹具收到含空格或中文值 | Str 原值接受；先构造 FilePath 再构造角色包装，不裁剪、不拆词、不读文件 |
 | 构造 Command、引用共享子树、选择 run 方法、prepare 或 bind | 零业务调用；只在 dispatch 的 Invoke 分支调用一次 |
 | 名称、元数或解码失败 | 零业务调用；不以 handler 运行结果试探参数类型 |
 | handler 返回 Failure / Usage | 退出 1 / 2；平台不重复调用或补报业务诊断 |
@@ -273,8 +327,10 @@ I/O 案例还观察 argv、stdout、stderr、刷新和业务调用。语法识�
 | 同一节点跨父节点复用或作为根 | 每次匹配并消费自己的名称，路径由本次输入累计，不修改共享节点 |
 | 根或子节点 Help + Auto；无效 Exact / Auto 名称 | 装配拒绝；不按挂载位置豁免，不隐式生成 Any |
 | 同名节点、空子列表、前方通配造成遮蔽 | 声明合法但保留优先级；被遮蔽的函数与参数类型仍须完整检查 |
-| 未支持参数、可选参数后接必填、两个可选参数、动态／循环树、未定义或不可见函数 | 装配拒绝，无可运行产物 |
-| 函数改名、参数名／类型／可选性变化 | Auto 名称、帮助、解码及调用从同一声明同步；Exact 别名保持显式值 |
+| 未支持参数、可选位置后接必填位置、两个可选位置、动态／循环树、未定义或不可见函数 | 装配拒绝；可选位置后接必填 Named 及多个可选 Named 合法 |
+| 裸 Str / FilePath / Option、Option[Named[Str]]、Named[Positional[Str]]、默认值或同名仿造包装类型 | 装配拒绝；只接受本平台名义类型与支持的嵌套形状 |
+| Named 形参名为 help、匿名或重复 | 装配拒绝，不产生含糊的选项匹配或覆盖框架帮助 |
+| 函数改名、参数名／角色／内层类型／可选性变化 | Auto 名称、命名选项、帮助、解码及包装调用从同一声明同步；Exact 别名保持显式值 |
 | 单命令 main 的零参、必填或可选路径签名 | 自动根明确为 Any，消费启动名称后按同一规则绑定并调用一次 |
 | 非 Unicode argv；宿主传空 argv | 前者在读取阶段 Usage，后者保留 [] 并在节点入口 Usage；不合成程序名 |
 | 从纯证明调用宿主操作；进程异常终止 | 前者静态拒绝，后者不产生成功或已清理证据 |
